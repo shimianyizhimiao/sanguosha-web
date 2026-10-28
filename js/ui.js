@@ -892,7 +892,29 @@
     setTimeout(() => clearInterval(t), 8000);
   }
 
+  let localBgm = null;
+
+  /* 若 assets/bgm/theme.mp3 存在，優先用本機音檔（可離線、不受網路封鎖影響） */
+  function tryLocalBgm(cb) {
+    fetch('assets/bgm/theme.mp3', { method: 'HEAD' }).then(r => {
+      if (!r.ok) return cb(false);
+      localBgm = new Audio('assets/bgm/theme.mp3');
+      localBgm.loop = true;
+      localBgm.volume = 0.4;
+      if (bgmWanted) localBgm.play().catch(() => {});
+      document.querySelector('#btnBgm').classList.add('on');
+      cb(true);
+    }).catch(() => cb(false));
+  }
+
+  window.__bgmLocal = () => (localBgm ? { paused: localBgm.paused, t: localBgm.currentTime } : null);
+
   function initBGM() {
+    if (ytPlayer || localBgm || !bgmWanted) return;
+    tryLocalBgm(ok => { if (!ok) initYT(); });
+  }
+
+  function initYT() {
     if (ytPlayer || !bgmWanted) return;
     loadYTApi(() => {
       if (ytPlayer) return;
@@ -926,6 +948,7 @@
       bgmWanted = !bgmWanted;
       localStorage.setItem(BGM_KEY, bgmWanted ? 'on' : 'off');
       btnBgm.classList.toggle('on', bgmWanted);
+      if (localBgm) { bgmWanted ? localBgm.play().catch(() => {}) : localBgm.pause(); return; }
       if (!ytPlayer) { if (bgmWanted) initBGM(); return; }
       try { bgmWanted ? ytPlayer.playVideo() : ytPlayer.pauseVideo(); } catch (e) { /* ignore */ }
     };
