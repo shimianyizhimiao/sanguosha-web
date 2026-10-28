@@ -268,3 +268,6 @@ button{font-family:inherit;cursor:pointer}
   #actions { flex-wrap: wrap; gap: 6px; }
   #actions .act { font-size: 12px; padding: 6px 10px; }
 }
+
+#bgm { position: fixed; left: -9999px; top: 0; width: 2px; height: 2px; overflow: hidden; pointer-events: none; }
+#topbar .act.on { border-color: var(--gold); color: var(--gold); }

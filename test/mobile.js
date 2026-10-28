@@ -4,7 +4,7 @@ const PORT = 9455;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 (async () => {
   const proc = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-    ['--headless=new', '--remote-debugging-port=' + PORT, '--user-data-dir=/tmp/sgsm', '--no-first-run',
+    ['--headless=new', '--remote-debugging-port=' + PORT, '--user-data-dir=/tmp/sgsm-' + Date.now(), '--no-first-run',
       '--window-size=390,844', 'about:blank'], { stdio: 'ignore' });
   for (let i = 0; i < 40; i++) { try { await fetch(`http://127.0.0.1:${PORT}/json/version`); break; } catch (e) { await sleep(200); } }
   const t = await (await fetch(`http://127.0.0.1:${PORT}/json/new?${encodeURIComponent('https://shimianyizhimiao.github.io/sanguosha-web/index.html')}`, { method: 'PUT' })).json();
@@ -17,6 +17,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
   await send('Page.enable'); await send('Runtime.enable');
+  await send('Network.enable'); await send('Network.setCacheDisabled', { cacheDisabled: true });
   await sleep(1500);
 
   const info = await ev(`(() => {

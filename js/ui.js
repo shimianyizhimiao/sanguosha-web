@@ -874,6 +874,64 @@
 
   const SPEEDS = [{ label: '慢', v: 420 }, { label: '正常', v: 220 }, { label: '快', v: 90 }, { label: '瞬發', v: 0 }];
   let speedIdx = 1;
+  /* ───── 背景音樂（YouTube 官方播放器嵌入，不抓音檔） ───── */
+  const BGM_ID = 'aEhc2NKUsjA';
+  const BGM_KEY = 'sgs.bgm';
+  let ytPlayer = null;
+  let bgmWanted = localStorage.getItem(BGM_KEY) !== 'off';
+
+  function loadYTApi(cb) {
+    if (window.YT && window.YT.Player) return cb();
+    if (!document.querySelector('#yt-api')) {
+      const sc = document.createElement('script');
+      sc.id = 'yt-api';
+      sc.src = 'https://www.youtube.com/iframe_api';
+      document.head.appendChild(sc);
+    }
+    const t = setInterval(() => { if (window.YT && window.YT.Player) { clearInterval(t); cb(); } }, 200);
+    setTimeout(() => clearInterval(t), 8000);
+  }
+
+  function initBGM() {
+    if (ytPlayer || !bgmWanted) return;
+    loadYTApi(() => {
+      if (ytPlayer) return;
+      try {
+        ytPlayer = new window.YT.Player('bgm', {
+          videoId: BGM_ID,
+          playerVars: { autoplay: 1, controls: 0, loop: 1, playlist: BGM_ID, disablekb: 1, modestbranding: 1, rel: 0 },
+          events: {
+            onReady: e => { e.target.setVolume(35); e.target.playVideo(); },
+            onStateChange: e => {
+              if (bgmWanted && e.data === 0) e.target.playVideo();   // 保險：播完再播
+            },
+          },
+        });
+        document.querySelector('#btnBgm').classList.add('on');
+      } catch (err) {
+        console.warn('BGM 初始化失敗', err);
+      }
+    });
+  }
+
+  // 首次點擊（使用者手勢）才啟動，符合瀏覽器自動播放政策
+  document.addEventListener('click', function once() {
+    initBGM();
+    document.removeEventListener('click', once);
+  }, { once: true });
+
+  const btnBgm = document.querySelector('#btnBgm');
+  if (btnBgm) {
+    btnBgm.onclick = () => {
+      bgmWanted = !bgmWanted;
+      localStorage.setItem(BGM_KEY, bgmWanted ? 'on' : 'off');
+      btnBgm.classList.toggle('on', bgmWanted);
+      if (!ytPlayer) { if (bgmWanted) initBGM(); return; }
+      try { bgmWanted ? ytPlayer.playVideo() : ytPlayer.pauseVideo(); } catch (e) { /* ignore */ }
+    };
+  }
+  window.__bgm = () => (ytPlayer ? { state: ytPlayer.getPlayerState(), vol: ytPlayer.getVolume(), t: ytPlayer.getCurrentTime() } : null);
+
   const btnLog = document.querySelector('#btnLog');
   if (btnLog) {
     btnLog.onclick = () => {
