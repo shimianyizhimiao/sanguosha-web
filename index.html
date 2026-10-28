@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>三國殺 · 網頁版</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ================= 大廳 ================= -->
+<div id="lobby">
+  <div class="lobby-inner">
+    <div class="brand">
+      <h1>三國殺</h1>
+      <p>SAN GUO SHA · WEB</p>
+    </div>
+
+    <div class="grid">
+      <div class="block">
+        <h3>模式</h3>
+        <div class="opts" id="modeOpts"></div>
+      </div>
+      <div class="block">
+        <h3>武將編制</h3>
+        <div class="opts" id="genOpts">
+          <button class="opt on" data-double="0">單將</button>
+          <button class="opt" data-double="1">雙將</button>
+        </div>
+      </div>
+      <div class="block">
+        <h3>牌庫</h3>
+        <div class="opts" id="packOpts"></div>
+      </div>
+      <div class="block">
+        <h3>武將包</h3>
+        <div class="opts" id="gpackOpts"></div>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:center;margin-top:14px">
+      <button class="opt" id="btnEditor">＋ 自定義武將編輯器</button>
+    </div>
+
+    <div class="start-row">
+      <button class="btn-primary" id="btnStart">開 始 對 局</button>
+    </div>
+    <div class="foot" id="lobbyFoot"></div>
+  </div>
+</div>
+
+<!-- ================= 選將 ================= -->
+<div id="pick" class="hidden">
+  <h2 id="pickTitle">選 擇 你 的 武 將</h2>
+  <div class="pick-cards" id="pickCards"></div>
+  <div class="pick-hint" id="pickHint"></div>
+</div>
+
+<!-- ================= 對局 ================= -->
+<div id="table" class="hidden">
+  <div id="board">
+    <canvas id="fx"></canvas>
+    <div id="seats"></div>
+    <div id="center">
+      <div class="phase" id="phaseLabel"></div>
+      <div class="prompt" id="promptLabel"></div>
+    </div>
+  </div>
+  <div id="log"></div>
+  <div id="bottom">
+    <div id="topbar">
+      <button id="btnSound" class="act">🔊 音效開</button>
+      <button id="btnSpeed" class="act">速度：正常</button>
+    </div>
+    <div id="myequips"></div>
+    <div id="actions"></div>
+    <div id="hand"></div>
+    <div id="handinfo"></div>
+  </div>
+</div>
+
+<div id="editor" class="hidden">
+  <div class="editor-box">
+    <h2>自 定 義 武 將</h2>
+    <div class="erow">
+      <label>名稱<input id="edName" maxlength="8" placeholder="例：關銀屏"></label>
+      <label>勢力<select id="edKingdom"><option>蜀</option><option>魏</option><option>吳</option><option>群</option><option>神</option></select></label>
+      <label>體力<select id="edHp"><option>3</option><option selected>4</option><option>5</option></select></label>
+      <label>性別<select id="edGender"><option value="male">男</option><option value="female">女</option></select></label>
+    </div>
+    <div class="ehint">技能（最多 3 個，可混搭現有技能）</div>
+    <div class="eskills" id="edSkills"></div>
+    <div class="erow" style="justify-content:space-between">
+      <span class="ehint" id="edSaved"></span>
+      <span>
+        <button class="act" id="edExport">匯出 JSON</button>
+        <button class="act" id="edImport">匯入 JSON</button>
+        <button class="act ok" id="edSave">儲存武將</button>
+        <button class="act cancel" id="edClose">關閉</button>
+      </span>
+    </div>
+    <div class="elist" id="edList"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<!-- ================= 結算 ================= -->
+<div id="result" class="hidden">
+  <div class="box">
+    <h2 id="resTitle">勝利</h2>
+    <p id="resSub"></p>
+    <div class="roles" id="resRoles"></div>
+    <button class="btn-primary" id="btnAgain">再 來 一 局</button>
+  </div>
+</div>
+
+<script src="js/cards.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/fx.js"></script>
+<script src="js/voice.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/generals.js"></script>
+<script src="js/generals-extra.js"></script>
+<script src="js/ai.js"></script>
+<script src="js/setup.js"></script>
+<script src="js/ui.js"></script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+body{background:#0b0e14;color:#e8dcc0;font-family:"PingFang TC",sans-serif;margin:16px}
+h1{font-size:16px;color:#d9b46a}
+.grid{display:grid;grid-template-columns:repeat(7,1fr);gap:10px}
+.cell{background:#141922;border:1px solid #2a3040;border-radius:8px;overflow:hidden}
+.cell img{width:100%;height:150px;object-fit:cover;object-position:50% 22%;display:block}
+.cell div{padding:4px 6px;font-size:12px;text-align:center}
+</style></head><body>
+<h1>武將頭像對照表</h1>
+<div class="grid" id="g"></div>
+<script>
+const names = ["劉備","關羽","張飛","趙雲","馬超","黃月英","諸葛亮","曹操","司馬懿","夏侯惇","張遼","許褚","郭嘉","甄姬","孫權","甘寧","呂蒙","黃蓋","周瑜","大喬","陸遜","孫尚香","華佗","呂布","貂蟬","賈詡","曹丕","徐晃","張郃","龐德","荀彧","關興","張苞","孫魯班"];
+const g = document.getElementById('g');
+for (const n of names) {
+  const d = document.createElement('div');
+  d.className = 'cell';
+  d.innerHTML = `<img src="../assets/portraits/${n}.jpg"><div>${n}</div>`;
+  g.appendChild(d);
+}
+</script>
+</body></html>
