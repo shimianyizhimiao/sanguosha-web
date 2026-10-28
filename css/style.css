@@ -241,3 +241,30 @@ button{font-family:inherit;cursor:pointer}
 .gcard .gport::after{content:'';position:absolute;inset:0;
   background:linear-gradient(180deg,rgba(10,12,17,0) 45%,rgba(10,12,17,.92) 100%)}
 .gcard .hprow{display:flex;gap:1px;margin:4px 0 2px;justify-content:center}
+
+
+/* ───── 手機／小平板 ───── */
+@media (max-width: 720px) {
+  #table { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
+  #board { grid-column: 1; grid-row: 1; }
+  #log {
+    display: none; position: fixed; inset: auto 0 0 0; height: 46vh; z-index: 40;
+    border-left: none; border-top: 1px solid var(--line);
+    background: rgba(8,10,14,.96); backdrop-filter: blur(6px);
+  }
+  #log.show { display: block; }
+  .seat { width: 136px; }
+  .seat .frame { padding: 6px; gap: 6px; }
+  .seat .avatar { width: 44px; height: 56px; }
+  .seat .nm { font-size: 12px; }
+  .seat .meta { font-size: 10.5px; }
+  .seat .idx { font-size: 10px; padding: 1px 5px; }
+  #topbar { gap: 6px; padding: 6px 8px; }
+  #topbar .act { font-size: 11px; padding: 4px 8px; }
+  #hand { flex-wrap: nowrap; overflow-x: auto; gap: 6px; padding: 6px 8px 10px; }
+  #hand .card { flex: 0 0 auto; width: 58px; }
+  #hand .card .nm { font-size: 12px; }
+  #center { font-size: 13px; }
+  #actions { flex-wrap: wrap; gap: 6px; }
+  #actions .act { font-size: 12px; padding: 6px 10px; }
+}

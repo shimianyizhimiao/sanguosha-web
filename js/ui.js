@@ -416,8 +416,9 @@
     const W = seats.clientWidth || window.innerWidth;
     const H = seats.clientHeight || (window.innerHeight - 200);
     const cx = W / 2, cy = H / 2;
-    const rx = Math.min(W * 0.40, 430);
-    const ry = Math.min(H * 0.38, 300);
+    const small = window.innerWidth <= 720;
+    const rx = Math.min(W * (small ? 0.32 : 0.40), 430);
+    const ry = Math.min(H * (small ? 0.33 : 0.38), 300);
 
     seats.innerHTML = '';
     for (let k = 0; k < n; k++) {
@@ -873,6 +874,15 @@
 
   const SPEEDS = [{ label: '慢', v: 420 }, { label: '正常', v: 220 }, { label: '快', v: 90 }, { label: '瞬發', v: 0 }];
   let speedIdx = 1;
+  const btnLog = document.querySelector('#btnLog');
+  if (btnLog) {
+    btnLog.onclick = () => {
+      const log = document.querySelector('#log');
+      log.classList.toggle('show');
+      btnLog.classList.toggle('on');
+    };
+  }
+
   const btnSound = document.querySelector('#btnSound');
   const btnSpeed = document.querySelector('#btnSpeed');
   btnSound.onclick = () => {
