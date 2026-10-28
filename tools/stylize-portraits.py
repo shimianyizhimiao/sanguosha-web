@@ -54,6 +54,30 @@ def vignette(size, strength=0.9):
     return m
 
 
+FACES = {}
+try:
+    FACES = json.load(open('/tmp/faces.json', encoding='utf-8'))
+except Exception:
+    FACES = {}
+
+
+def crop_face(im, size, face):
+    """以偵測到的臉為中心，擴大到頭肩範圍（Vision 座標原點在左下）"""
+    w, h = im.size
+    fh = face['h']
+    top_n = 1 - face['y'] - face['h']          # 轉成左上原點
+    cx = (face['x'] + face['w'] / 2) * w
+    cy = (top_n + face['h'] / 2) * h
+    side = max(h * fh * 2.0, w * 0.5)
+    left = min(max(0, cx - side / 2), max(0, w - side))
+    top = min(max(0, cy - side * 0.45), max(0, h - side))
+    left, top = int(left), int(top)
+    side = int(min(side, w - left, h - top))
+    if side < 40:
+        return None
+    return im.crop((left, top, left + side, top + side)).resize((size, size), Image.LANCZOS)
+
+
 def crop_head(im, size):
     """線描古畫多為全身：優先取上方 62% 的頭肩區域，並裁成正方形"""
     w, h = im.size
@@ -63,9 +87,10 @@ def crop_head(im, size):
     return im.crop((left, top, left + side, top + side)).resize((size, size), Image.LANCZOS)
 
 
-def stylize(src_path, dst_path):
+def stylize(src_path, dst_path, face=None):
     im = Image.open(src_path).convert('RGB')
-    im = crop_head(im, SIZE)
+    cropped = crop_face(im, SIZE, face) if face else None
+    im = cropped if cropped is not None else crop_head(im, SIZE)
     g = ImageOps.autocontrast(im.convert('L'), cutoff=1)
     g = ImageOps.invert(g)                       # 墨線變亮、紙底變黑
     g = ImageEnhance.Contrast(g).enhance(1.35)
@@ -138,7 +163,12 @@ def main():
             emblem(name, meta.get('kingdom'), dst)
             made_emblem += 1
         elif os.path.exists(src) and os.path.getsize(src) > 5000:
-            stylize(src, dst)
+            faces = FACES.get(name) or []
+            face = None
+            if faces:
+                # 多張臉時取最靠近中央的
+                face = sorted(faces, key=lambda f: abs((f['x'] + f['w'] / 2) - 0.5))[0]
+            stylize(src, dst, face)
             made_photo += 1
         else:
             emblem(name, meta.get('kingdom'), dst)
