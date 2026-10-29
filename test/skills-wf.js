@@ -132,6 +132,68 @@ function mk(a, b) {
     check(t.hand.length === before + 2 - 1, `英魂：摸 2 棄 1（${before} → ${t.hand.length}）`);
   }
 
+
+  /* 9. 火計／看破／連環：轉化清單存在且能轉 */
+  {
+    const CV = root.SGS_CONVERT || [];
+    check(CV.some(c => c.skill === '火計' && c.to === '火攻'), '火計：紅色手牌可轉【火攻】');
+    check(CV.some(c => c.skill === '看破' && c.to === '無懈可擊'), '看破：黑色手牌可轉【無懈可擊】');
+    check(CV.some(c => c.skill === '連環' && c.to === '鐵索連環'), '連環：♣手牌可轉【鐵索連環】');
+    const g = mk('龐統');
+    const p = g.players[0];
+    p.skills = ['火計', '看破', '連環'];
+    const red = CARDS.buildDeck(['std']).find(c => c.color === 'red' && c.name !== '閃');
+    p.hand.push(red);
+    const usable = g.usableCards(p);
+    check(usable.some(u => u.asName === '火攻' && u.skill === '火計'), '火計：出牌階段清單出現【火攻】轉化');
+  }
+
+  /* 10. 亂擊：兩張同花色當【萬箭齊發】 */
+  {
+    const g = mk('袁紹');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['亂擊'];
+    const deck = CARDS.buildDeck(['std']).filter(c => c.suit === '♠').slice(0, 2);
+    p.hand.length = 0; p.hand.push(...deck);
+    g.askCards = async (who, opt) => (opt.pool || []).slice(0, 2);
+    g.askForCard = async () => null;
+    const hpBefore = t.hp, discardBefore = g.discardPile.length;
+    await root.SGS_SKILLS['亂擊'].active(g, p);
+    check(g.discardPile.length >= discardBefore + 2, '亂擊：兩張牌進入棄牌堆');
+    check(t.hp === hpBefore - 1, `亂擊：萬箭齊發命中（${hpBefore} → ${t.hp}）`);
+  }
+
+  /* 11. 涅槃：瀕死時棄牌、回复至 3、摸三張 */
+  {
+    const g = mk('龐統');
+    const p = g.players[0];
+    p.skills = ['涅槃'];
+    g.askForCard = async () => null;
+    g.askSkill = async () => true;
+    p.hp = 0;
+    const wpn = CARDS.buildDeck(['std']).find(c => c.name === '青釭劍');
+    p.hand.push(wpn);
+    await g.dying(p);
+    check(p.alive, '涅槃：角色存活');
+    check(p.hp === 3, `涅槃：體力回复至 3（實際 ${p.hp}）`);
+    check(p.usedNirvana === true, '涅槃：限定技已用');
+    check(!g.discardPile.includes(wpn) === false, '涅槃：手牌已棄置');
+  }
+
+  /* 12. 不屈：瀕死時翻牌，點數互異回复至 1 */
+  {
+    const g = mk('周泰');
+    const p = g.players[0];
+    p.skills = ['不屈'];
+    g.askForCard = async () => null;
+    p.hp = 0;
+    const top = g.deck[g.deck.length - 1];
+    await g.dying(p);
+    check(p.alive && p.hp === 1, `不屈：回复至 1 點體力（實際 ${p.hp}）`);
+    check((p.buqu || []).length === 1, '不屈：武將牌上有 1 張不屈牌');
+    check(p.buqu[0] === top, '不屈：取的是牌堆頂那張');
+  }
+
   console.log(fails === 0 ? '\n全部通過' : `\n${fails} 項失敗`);
   process.exit(fails ? 1 : 0);
 })();

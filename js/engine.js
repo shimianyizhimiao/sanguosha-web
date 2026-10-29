@@ -449,7 +449,50 @@
         }
         if (!saved) break;
       }
+      if (p.hp <= 0 && p.alive) await this.trySaveSkills(p, source);
       if (p.hp <= 0) await this.killPlayer(p, source);
+    }
+
+    /* 瀕死時能把人救回來的技能：涅槃（限定技）、不屈（鎖定技） */
+    async trySaveSkills(p, source) {
+      // 涅槃：棄置所有牌，體力回复至 3，摸三張
+      if (p.skills.includes('涅槃') && !p.usedNirvana && !this.isSilenced(p, '涅槃')) {
+        const yes = await this.askSkill(p, '涅槃', '【涅槃】是否棄置所有牌、回复至 3 點體力並摸三張牌？');
+        if (yes) {
+          p.usedNirvana = true;
+          const all = p.hand.slice();
+          for (const slot of ['weapon', 'armor', 'horse+', 'horse-', 'treasure']) {
+            if (p.equips[slot]) { all.push(p.equips[slot]); p.equips[slot] = null; }
+          }
+          if (p.judgeZone) for (const j of p.judgeZone.slice()) all.push(j);
+          p.judgeZone = [];
+          p.hand.length = 0;
+          this.toDiscard(all);
+          p.hp = Math.min(3, p.maxHp);
+          this.drawCards(p, 3);
+          this.log(`${this.nameOf(p)} 發動【涅槃】：棄置所有牌、回复至 ${p.hp} 點體力並摸三張牌`, 'skill');
+          this.emit('heal', { target: p, amount: p.hp });
+          this.update();
+          return;
+        }
+      }
+      // 不屈：牌堆頂一張置於武將牌上，點數互異則回复至 1 點
+      if (p.skills.includes('不屈') && !this.isSilenced(p, '不屈')) {
+        p.buqu = p.buqu || [];
+        const c = this.drawFromDeck(1)[0];
+        if (!c) return;
+        p.buqu.push(c);
+        const ranks = p.buqu.map(x => String(x.rank));
+        const distinct = new Set(ranks).size === ranks.length;
+        if (distinct) {
+          p.hp = 1;
+          this.log(`${this.nameOf(p)} 發動【不屈】：${C.cardText(c)}（不屈牌 ${ranks.join('、')}）→ 回复至 1 點體力`, 'skill');
+          this.emit('heal', { target: p, amount: 1 });
+        } else {
+          this.log(`${this.nameOf(p)} 的【不屈】點數重複（${ranks.join('、')}），瀕死未解除`, 'warn');
+        }
+        this.update();
+      }
     }
 
     consumeCards(p, cards, asName) {

@@ -210,6 +210,65 @@
   };
 
   /* 標記：這些技能已有真實效果（UI 顯示用） */
+
+  /* ═══════════ 第二批 ═══════════ */
+
+  /* ── 火計 / 看破 / 連環：單張轉化 ───────────────────────────── */
+  SK['火計'] = { type: 'convert', desc: '你可以將一張紅色手牌當【火攻】使用。' };
+  SK['看破'] = { type: 'convert', desc: '你可以將一張黑色手牌當【無懈可擊】使用。' };
+  SK['連環'] = { type: 'convert', desc: '你可以將一張♣手牌當【鐵索連環】使用。' };
+  const CV = root.SGS_CONVERT = root.SGS_CONVERT || [];
+  CV.push({ skill: '火計', to: '火攻', from: { color: 'red' } });
+  CV.push({ skill: '看破', to: '無懈可擊', from: { color: 'black' } });
+  CV.push({ skill: '連環', to: '鐵索連環', from: { suit: '♣' } });
+
+  /* ── 亂擊（袁紹）──────────────────────────────────────────────
+     出牌階段，你可以將兩張相同花色的手牌當【萬箭齊發】使用 */
+  SK['亂擊'] = {
+    type: 'active',
+    desc: '出牌階段，你可以將兩張相同花色的手牌當【萬箭齊發】使用。',
+    canUse(g, p) {
+      const seen = new Set();
+      for (const c of p.hand) { if (seen.has(c.suit)) return true; seen.add(c.suit); }
+      return g.alive().filter(q => q !== p).length > 0 && p.hand.length >= 2;
+    },
+    async active(g, p) {
+      const bySuit = {};
+      for (const c of p.hand) (bySuit[c.suit] = bySuit[c.suit] || []).push(c);
+      const pair = Object.values(bySuit).find(list => list.length >= 2);
+      if (!pair) return;
+      const cards = await g.askCards(p, {
+        min: 2, max: 2, pool: p.hand.filter(c => c.suit === pair[0].suit),
+        prompt: '【亂擊】選擇兩張相同花色的手牌當【萬箭齊發】',
+      });
+      if (!cards || cards.length < 2) return;
+      for (const c of cards) { const i = p.hand.indexOf(c); if (i >= 0) p.hand.splice(i, 1); }
+      g.toDiscard(cards);
+      const vc = {
+        id: 'v亂擊' + Date.now(), name: '萬箭齊發', type: 'trick', virtual: true,
+        subcards: [], suit: cards[0].suit, rank: cards[0].rank, skill: '亂擊',
+      };
+      g.log(`${g.nameOf(p)} 發動【亂擊】，將兩張${SUITS[cards[0].suit] || ''}牌當【萬箭齊發】使用`, 'skill');
+      await g.playCard(p, vc, null, '萬箭齊發', '亂擊');
+      g.update();
+    },
+  };
+
+  /* ── 涅槃 / 不屈：引擎在瀕死時呼叫（見 engine.trySaveSkills）────── */
+  SK['涅槃'] = {
+    type: 'limited',
+    desc: '限定技，當你處於瀕死狀態時，你可以棄置你所有的牌，然後將你的體力回复至3點，摸三張牌。',
+  };
+
+  SK['不屈'] = {
+    type: 'locked',
+    desc: '鎖定技，當你處於瀕死狀態時，你將牌堆頂的一張牌置於你的武將牌上（稱為「不屈牌」）。若你的「不屈牌」點數各不相同，你回復至1點體力。',
+  };
+
+  const DONE2 = ['火計', '看破', '連環', '亂擊', '涅槃', '不屈'];
+  for (const n of DONE2) if (SK[n]) { delete SK[n].todo; SK[n].impl = true; }
+  root.SGS_SKILLS_DONE = (root.SGS_SKILLS_DONE || []).concat(DONE2);
+
   const DONE = ['血裔', '據守', '狂骨', '破虜', '烈弓', '直諫', '固政', '英魂'];
   for (const n of DONE) if (SK[n]) { delete SK[n].todo; SK[n].impl = true; }
   root.SGS_SKILLS_DONE = (root.SGS_SKILLS_DONE || []).concat(DONE);
