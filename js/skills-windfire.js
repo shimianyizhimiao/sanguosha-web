@@ -1152,12 +1152,15 @@
           p.hand.push(c);
           g.log(`【烈刃】${g.nameOf(p)} 拼點獲勝，獲得 ${g.nameOf(t)} 一張牌`, 'skill');
         } else {
-          // 沒贏：交換拼點的兩張牌（把它們從棄牌堆拿回來對調）
-          const ci = g.discardPile.indexOf(r.cp), cj = g.discardPile.indexOf(r.cq);
-          if (ci >= 0) g.discardPile.splice(ci, 1);
-          if (cj >= 0) g.discardPile.splice(cj, 1);
-          t.hand.push(r.cp);
-          p.hand.push(r.cq);
+          // 沒贏：交換拼點的兩張牌（只搬真的進了棄牌堆的那些，避免同一張牌出現兩次）
+          const move = (card, to) => {
+            const di = g.discardPile.indexOf(card);
+            if (di < 0) return;                 // 還在原本手牌裡，不動
+            g.discardPile.splice(di, 1);
+            to.hand.push(card);
+          };
+          move(r.cp, t);
+          move(r.cq, p);
           g.log(`【烈刃】沒贏，${g.nameOf(p)} 與 ${g.nameOf(t)} 交換拼點的牌`, 'skill');
         }
       },
@@ -1296,6 +1299,225 @@
   const DONE7 = ['紅顏', '巨象', '烈刃', '天義', '志繼', '從諫', '雄亂', '鎮骨'];
   for (const n of DONE7) if (SK[n]) { delete SK[n].todo; SK[n].impl = true; }
   root.SGS_SKILLS_DONE = (root.SGS_SKILLS_DONE || []).concat(DONE7);
+
+
+  /* ═══════════ 第八批 ═══════════ */
+
+  /* ── 纏怨：體力 1 時其他技能失效（引擎 isSilenced 已處理）──────── */
+  SK['纏怨'] = {
+    type: 'locked',
+    desc: '鎖定技，你不能質疑「蠱惑」；若你的體力值為1，則你的其他技能失效。',
+  };
+
+  /* ── 千幻：同勢力受傷時存牌；同勢力成為目標時可棄牌取消 ───── */
+  SK['千幻'] = {
+    type: 'trigger',
+    desc: '當與你勢力相同的一名角色受到傷害後，你可以將一張牌置於你的武將牌上（不能與武將牌上已有的牌花色相同）。當一名與你勢力相同的角色成為基本牌或錦囊牌的唯一目標時，你可以將你武將牌上的一張牌放入棄牌堆，然後取消之。',
+    events: {
+      async damaged(g, ctx, p) {
+        const t = ctx.target;
+        if (!t || t === p) return;
+        const same = p.generals.some(a => t.generals.some(b => a.kingdom === b.kingdom));
+        if (!same) return;
+        p.qianhuan = p.qianhuan || [];
+        const used = p.qianhuan.map(c => c.suit);
+        const pool = [...p.hand, ...equipSlots.map(sl => p.equips[sl]).filter(Boolean)].filter(c => !used.includes(c.suit));
+        if (!pool.length) return;
+        const yes = await g.askSkill(p, '千幻');
+        if (!yes) return;
+        const c = await g.askCard(p, { prompt: '【千幻】將一張牌置於武將牌上', pool });
+        if (!c) return;
+        if (c.slot && p.equips[c.slot] === c) { p.equips[c.slot] = null; g.onEquipChange && g.onEquipChange(p); }
+        else { const i = p.hand.indexOf(c); if (i >= 0) p.hand.splice(i, 1); }
+        p.qianhuan.push(c);
+        g.log(`${g.nameOf(p)} 發動【千幻】，將 ${C.cardText(c)} 置於武將牌上`, 'skill');
+      },
+      async shaTargeted(g, ctx, p) {
+        const t = ctx.target;
+        if (!t || t === p) return;
+        if (!p.qianhuan || !p.qianhuan.length) return;
+        const same = p.generals.some(a => t.generals.some(b => a.kingdom === b.kingdom));
+        if (!same) return;
+        const yes = await g.askSkill(p, '千幻', `【千幻】取消對 ${g.nameOf(t)} 的這張牌？`);
+        if (!yes) return;
+        const c = p.qianhuan.pop();
+        g.toDiscard([c]);
+        ctx.noEffect = true;
+        ctx.effectSkill = '千幻';
+        g.log(`${g.nameOf(p)} 發動【千幻】，棄置 ${C.cardText(c)} 取消此牌`, 'skill');
+      },
+      async trickTargets(g, ctx, p) {
+        if (!ctx.targets || ctx.targets.length !== 1) return;
+        const t = ctx.targets[0];
+        if (!t || t === p) return;
+        if (!p.qianhuan || !p.qianhuan.length) return;
+        const same = p.generals.some(a => t.generals.some(b => a.kingdom === b.kingdom));
+        if (!same) return;
+        const yes = await g.askSkill(p, '千幻', `【千幻】取消【${ctx.name}】對 ${g.nameOf(t)} 的效果？`);
+        if (!yes) return;
+        const c = p.qianhuan.pop();
+        g.toDiscard([c]);
+        ctx.negate.push(t);
+        g.log(`${g.nameOf(p)} 發動【千幻】，棄置 ${C.cardText(c)} 取消【${ctx.name}】`, 'skill');
+      },
+    },
+  };
+
+  /* ── 止啼：範圍內已受傷的敵方手牌上限 -1 ──────────────────── */
+  SK['止啼'] = {
+    type: 'locked',
+    desc: '鎖定技，你攻擊範圍內已受傷的角色手牌上限-1；當你與這些角色【決鬥】或拼點贏時，或你受到來源為這些角色的傷害後，你恢復一個裝備欄。',
+    limitFor(g, owner, p) {
+      if (owner === p) return 0;
+      if (p.hp >= p.maxHp) return 0;
+      if (!g.inAttackRange(owner, p)) return 0;
+      const ai = owner.controller;
+      if (ai && typeof ai.isFriend === 'function' && ai.isFriend(g, owner, p)) return 0;
+      return -1;
+    },
+    events: {
+      async damaged(g, ctx, p) {
+        if (ctx.target !== p || !ctx.source) return;
+        if (!g.inAttackRange(p, ctx.source)) return;
+        const slots = ['weapon', 'armor', 'horse+', 'horse-', 'treasure'].filter(s => p.deadSlots && p.deadSlots[s]);
+        if (!slots.length) return;
+        g.restoreSlot(p, slots[0]);
+        g.log(`${g.nameOf(p)} 因【止啼】恢復一個裝備欄`, 'skill');
+      },
+    },
+  };
+
+  /* ── 薦降：成為他人用牌的目標後，令手牌最少者摸一張 ─────────── */
+  SK['薦降'] = {
+    type: 'trigger',
+    desc: '當你成為其他角色使用牌的目標後，你可以令手牌數最少的一名角色摸一張牌。',
+    events: {
+      async shaTargeted(g, ctx, p) {
+        if (ctx.target !== p || ctx.source === p) return;
+        if (p.turnFlags && p.turnFlags['薦降']) return;
+        const yes = await g.askSkill(p, '薦降');
+        if (!yes) return;
+        p.turnFlags['薦降'] = true;
+        const alive = g.alive();
+        const least = Math.min(...alive.map(q => q.hand.length));
+        const cands = alive.filter(q => q.hand.length === least);
+        const t = await g.askTargets(p, { prompt: '【薦降】令手牌最少的一名角色摸一張牌', min: 1, max: 1, candidates: cands });
+        const tgt = (t && t[0]) || cands[0];
+        g.drawCards(tgt, 1);
+        g.log(`${g.nameOf(p)} 發動【薦降】，${g.nameOf(tgt)} 摸一張牌`, 'skill');
+      },
+      async trickTargets(g, ctx, p) {
+        if (!ctx.targets || !ctx.targets.includes(p)) return;
+        if (ctx.player === p) return;
+        if (p.turnFlags && p.turnFlags['薦降']) return;
+        const yes = await g.askSkill(p, '薦降');
+        if (!yes) return;
+        p.turnFlags['薦降'] = true;
+        const alive = g.alive();
+        const least = Math.min(...alive.map(q => q.hand.length));
+        const cands = alive.filter(q => q.hand.length === least);
+        const t = await g.askTargets(p, { prompt: '【薦降】令手牌最少的一名角色摸一張牌', min: 1, max: 1, candidates: cands });
+        const tgt = (t && t[0]) || cands[0];
+        g.drawCards(tgt, 1);
+        g.log(`${g.nameOf(p)} 發動【薦降】，${g.nameOf(tgt)} 摸一張牌`, 'skill');
+      },
+    },
+  };
+
+  /* ── 卸兵：棄一名距離內角色的裝備 ─────────────────────────── */
+  SK['卸兵'] = {
+    type: 'active',
+    desc: '出牌階段限一次，你可以選擇一名距離＜4＞以內的敵方角色，棄置其裝備區裡的一張牌。',
+    canUse(g, p) {
+      if (p.turnFlags && p.turnFlags['卸兵']) return false;
+      return g.others(p).some(q => g.distance(p, q) <= 3 && equipSlots.some(sl => q.equips[sl]));
+    },
+    async active(g, p) {
+      if (p.turnFlags['卸兵']) return;
+      const t = await g.askTargets(p, {
+        prompt: '【卸兵】選擇一名角色', min: 1, max: 1,
+        filter: q => q.alive && q !== p && g.distance(p, q) <= 3 && equipSlots.some(sl => q.equips[sl]),
+      });
+      if (!t || !t.length) return;
+      const tgt = t[0];
+      const eqs = equipSlots.map(sl => tgt.equips[sl]).filter(Boolean);
+      if (!eqs.length) return;
+      p.turnFlags['卸兵'] = true;
+      const c = eqs[Math.floor(Math.random() * eqs.length)];
+      tgt.equips[c.slot] = null;
+      g.onEquipChange && g.onEquipChange(tgt);
+      g.toDiscard([c]);
+      g.log(`${g.nameOf(p)} 發動【卸兵】，棄置 ${g.nameOf(tgt)} 的 ${C.cardText(c)}`, 'skill');
+      g.update();
+    },
+  };
+
+  /* ── 無懼：紅色【殺】對自己無效（引擎 useShaOn 已處理）────────── */
+  SK['無懼'] = {
+    type: 'locked',
+    desc: '鎖定技，紅色【殺】對你無效。',
+  };
+
+  /* ── 附敵：受傷後交牌給來源，然後打同勢力體力最高者 ─────────── */
+  SK['附敵'] = {
+    type: 'trigger',
+    desc: '當你受到傷害後，你可以交給傷害來源一張手牌，然後你對與其勢力相同的角色中體力值最多且不少於你的一名角色造成1點傷害。',
+    events: {
+      async damaged(g, ctx, p) {
+        if (ctx.target !== p || !ctx.source || !ctx.source.alive) return;
+        if (!p.hand.length) return;
+        const yes = await g.askSkill(p, '附敵');
+        if (!yes) return;
+        const c = await g.askCard(p, { prompt: '【附敵】交給傷害來源一張手牌', pool: p.hand.slice() });
+        if (!c) return;
+        const i = p.hand.indexOf(c);
+        if (i >= 0) p.hand.splice(i, 1);
+        ctx.source.hand.push(c);
+        const src = ctx.source;
+        const cands = g.alive().filter(q => q !== p && q.hp >= p.hp &&
+          q.generals.some(a => src.generals.some(b => a.kingdom === b.kingdom)));
+        if (!cands.length) return;
+        const top = cands.reduce((a, b) => (b.hp > a.hp ? b : a));
+        g.log(`${g.nameOf(p)} 發動【附敵】，對 ${g.nameOf(top)} 造成 1 點傷害`, 'skill');
+        await g.damage(p, top, 1, 'normal', null);
+      },
+    },
+  };
+
+  /* ── 相濡：交給來源兩張牌防止致命傷害 ─────────────────────── */
+  SK['相濡'] = {
+    type: 'trigger',
+    desc: '當一名已受傷的其他角色或你受到致命傷害時，你可以交給傷害來源兩張牌防止此傷害。',
+    events: {
+      async beforeDamaged(g, ctx, p) {
+        if (ctx.canceled) return;
+        const t = ctx.target;
+        if (!t || !t.alive) return;
+        const wouldKill = t.hp - ctx.amount <= 0;
+        if (!wouldKill) return;
+        const me = p;
+        if (me.hand.length + equipCount(me) < 2) return;
+        const injured = me.hp < me.maxHp || t.hp < t.maxHp;
+        if (!injured) return;
+        const yes = await g.askSkill(p, '相濡', `【相濡】交出兩張牌防止對 ${g.nameOf(t)} 的致命傷害？`);
+        if (!yes) return;
+        const pool = [...p.hand, ...equipSlots.map(sl => p.equips[sl]).filter(Boolean)];
+        const cs = await g.askCards(p, { min: 2, max: 2, pool, prompt: '【相濡】交給傷害來源兩張牌' });
+        if (!cs || cs.length < 2) return;
+        const eqCards = cs.filter(c => c.slot && p.equips[c.slot] === c);
+        for (const c of eqCards) { p.equips[c.slot] = null; g.toDiscard([c]); }
+        if (eqCards.length) g.onEquipChange && g.onEquipChange(p);
+        const handCards = cs.filter(c => p.hand.includes(c));
+        if (handCards.length) g.consumeCards(p, handCards, '相濡');
+        ctx.canceled = true;
+        g.log(`${g.nameOf(p)} 發動【相濡】，防止對 ${g.nameOf(t)} 的致命傷害`, 'skill');
+      },
+    },
+  };
+
+  const DONE8 = ['纏怨', '千幻', '止啼', '薦降', '卸兵', '無懼', '附敵', '相濡'];
+  for (const n of DONE8) if (SK[n]) { delete SK[n].todo; SK[n].impl = true; }
+  root.SGS_SKILLS_DONE = (root.SGS_SKILLS_DONE || []).concat(DONE8);
 
   const DONE = ['血裔', '據守', '狂骨', '破虜', '烈弓', '直諫', '固政', '英魂'];
   for (const n of DONE) if (SK[n]) { delete SK[n].todo; SK[n].impl = true; }

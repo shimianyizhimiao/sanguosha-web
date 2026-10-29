@@ -547,6 +547,7 @@
       if (p.stars && p.stars.length) this.toDiscard(p.stars.splice(0));   // 七星：星也要進棄牌堆
       if (p.buqu && p.buqu.length) this.toDiscard(p.buqu.splice(0));       // 不屈牌：死亡時一併棄置
       if (p.ren) { this.toDiscard([p.ren]); p.ren = null; }                // 明任的「任」
+      if (p.qianhuan && p.qianhuan.length) this.toDiscard(p.qianhuan.splice(0));   // 千幻牌
       this.log(`${this.nameOf(p)}（${p.identityName}）陣亡`, 'death');
       this.emit('death', { player: p, source });
       this.update();
@@ -597,6 +598,7 @@
     /* ============================ 技能觸發 ============================ */
     // 技能是否正被暫時無效（存「到第幾個自己的回合結束前」）
     isSilenced(p, skName) {
+      if (p.skills && p.skills.includes('纏怨') && skName !== '纏怨' && p.hp === 1) return true;   // 纏怨：體力 1 時其他技能失效
       const until = p.silenced && p.silenced[skName];
       if (until == null) return false;
       if ((p.turnCount || 0) >= until) { delete p.silenced[skName]; return false; }
@@ -1117,7 +1119,7 @@
       this.lastPlay = { name, suit: card.suit, rank: card.rank, by: p.id, at: Date.now() };
       this.emit('trick', { player: p, name, targets: tgts, card });
       // 錦囊多目標時，允許技能令其中部分目標無效（例：界甘寧【奮威】）
-      if (tgts.length > 1) {
+      if (tgts.length >= 1) {
         const ctx2 = { player: p, card, name, targets: tgts.slice(), negate: [] };
         await this.trigger('trickTargets', ctx2);
         if (ctx2.negate.length) {
@@ -1392,6 +1394,10 @@
       await this.trigger('shaTargeted', tctx);
       target = tctx.target || target;
       if (!target || !target.alive || this.over) return;
+      if (target.skills && target.skills.includes('無懼') && card && (card.color === 'red' || card.suit === '♥' || card.suit === '♦')) {
+        this.log(`【無懼】：紅色【殺】對 ${this.nameOf(target)} 無效`, 'skill');
+        return;
+      }
       if (tctx.noEffect) { this.log(`【${tctx.effectSkill || '技能'}】令此【殺】對 ${this.nameOf(target)} 無效`, 'skill'); return; }
       if (!this.canBeTargeted(source, target, '殺', card)) { this.log(`${this.nameOf(target)} 不受此【殺】影響`); return; }
       if (this.armorBlocks(target, card, '殺')) {

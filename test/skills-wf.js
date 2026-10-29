@@ -760,6 +760,124 @@ function mk(a, b) {
     check(t.hand.length === 2, `鎮骨：目標手牌調整為與你相同 2 張（實際 ${t.hand.length}）`);
   }
 
+
+  /* 52. 纏怨：體力 1 時其他技能失效 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0];
+    p.skills = ['纏怨', '狂骨'];
+    p.maxHp = 4; p.hp = 1;
+    check(g.isSilenced(p, '狂骨') === true, '纏怨：體力 1 時其他技能失效');
+    check(g.isSilenced(p, '纏怨') === false, '纏怨：自己不失效');
+    p.hp = 3;
+    check(g.isSilenced(p, '狂骨') === false, '纏怨：體力恢復後技能回來');
+  }
+
+  /* 53. 千幻：同勢力受傷後存牌，之後可取消對同勢力的一張牌 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['千幻'];
+    p.generals[0].kingdom = '蜀';
+    t.generals[0].kingdom = '蜀';
+    const deck = CARDS.buildDeck(['std']);
+    p.hand.push(deck[0]);
+    g.askSkill = async () => true;
+    g.askCard = async (who, opt) => (opt.pool || [])[0] || null;
+    await g.trigger('damaged', { source: null, target: t, amount: 1, nature: 'normal', card: null });
+    check((p.qianhuan || []).length === 1, '千幻：受傷後把一張牌置於武將牌上');
+    const ctx = { source: g.players[1], target: t, card: deck.find(c => c.name === '殺'), noEffect: false };
+    await g.trigger('shaTargeted', ctx);
+    check(ctx.noEffect === true, '千幻：取消對同勢力角色的【殺】');
+    check((p.qianhuan || []).length === 0, '千幻：取消後武將牌上的牌被棄置');
+  }
+
+  /* 54. 止啼：範圍內已受傷敵方手牌上限 -1 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['止啼'];
+    t.maxHp = 4; t.hp = 2;
+    const base = 2;                       // 手牌上限 = hp
+    check(g.handLimit(t) === base - 1, `止啼：已受傷敵方手牌上限 -1（${base} → ${g.handLimit(t)}）`);
+    t.hp = 4;
+    check(g.handLimit(t) === 4, '止啼：沒受傷時無影響');
+  }
+
+  /* 55. 薦降：成為他人用牌的目標後，手牌最少者摸一張 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    t.skills = ['薦降'];
+    p.hand.length = 0;
+    t.hand.length = 0; t.hand.push(...CARDS.buildDeck(['std']).slice(0, 2));
+    t.turnFlags = {};
+    g.askSkill = async () => true;
+    g.askTargets = async () => [p];
+    const ph = p.hand.length;
+    await g.trigger('shaTargeted', { source: p, target: t, card: CARDS.buildDeck(['std']).find(c => c.name === '殺') });
+    check(p.hand.length === ph + 1, `薦降：手牌最少者摸一張（${ph} → ${p.hand.length}）`);
+  }
+
+  /* 56. 卸兵：棄一名距離內角色的裝備 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['卸兵'];
+    const wpn = CARDS.buildDeck(['std']).find(c => c.name === '青釭劍');
+    t.hand.push(wpn); g.equipCard(t, wpn);
+    g.askTargets = async () => [t];
+    await root.SGS_SKILLS['卸兵'].active(g, p);
+    check(t.equips.weapon === null && g.discardPile.includes(wpn), '卸兵：目標武器被棄置');
+    check(p.turnFlags['卸兵'] === true, '卸兵：本回合已使用');
+  }
+
+  /* 57. 無懼：紅色【殺】對自己無效 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    t.skills = ['無懼'];
+    const deck = CARDS.buildDeck(['std']);
+    const redSha = deck.find(c => c.name === '殺' && c.color === 'red');
+    const blackSha = deck.find(c => c.name === '殺' && c.color === 'black');
+    const hp0 = t.hp;
+    await g.useShaOn(p, t, redSha);
+    check(t.hp === hp0, '無懼：紅色【殺】無效');
+    g.askForCard = async () => null;
+    await g.useShaOn(p, t, blackSha);
+    check(t.hp === hp0 - 1, `無懼：黑色【殺】照常命中（${hp0} → ${t.hp}）`);
+  }
+
+  /* 58. 附敵：交一張給來源，然後打同勢力體力最高者 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['附敵'];
+    p.hand.push(...CARDS.buildDeck(['std']).slice(0, 2));
+    p.maxHp = 4; p.hp = 3;
+    t.maxHp = 4; t.hp = 4;
+    g.askSkill = async () => true;
+    g.askCard = async (who, opt) => (opt.pool || [])[0] || null;
+    const th = t.hand.length;
+    await g.damage(t, p, 1, 'normal', null);
+    check(t.hand.length === th + 1, '附敵：交給傷害來源一張手牌');
+  }
+
+  /* 59. 相濡：交兩張牌防止致命傷害 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    t.skills = ['相濡'];
+    p.hand.push(...CARDS.buildDeck(['std']).slice(0, 3));
+    t.maxHp = 4; t.hp = 1;
+    g.askSkill = async () => true;
+    g.askCards = async (who, opt) => (opt.pool || []).slice(0, 2);
+    const hp0 = t.hp;
+    await g.damage(g.players[1], t, 2, 'normal', null);
+    check(t.hp === hp0, `相濡：致命傷害被防止（體力 ${t.hp}）`);
+    check(t.alive, '相濡：角色存活');
+  }
+
   console.log(fails === 0 ? '\n全部通過' : `\n${fails} 項失敗`);
   process.exit(fails ? 1 : 0);
 })();

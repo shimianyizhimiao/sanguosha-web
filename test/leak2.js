@@ -15,6 +15,7 @@ const allIds = g => {
     out.push(...(p.stars||[]).map(c => c.id));
     out.push(...(p.buqu||[]).map(c => c.id));   // 不屈牌扣在武將牌上
     if (p.ren) out.push(p.ren.id);              // 明任的「任」也在武將牌上
+    out.push(...(p.qianhuan||[]).map(c => c.id)); // 千幻牌
   }
   out.push(...g.deck.map(c => c.id));
   out.push(...g.discardPile.map(c => c.id));
