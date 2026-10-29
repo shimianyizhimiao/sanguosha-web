@@ -9,8 +9,12 @@
 </head>
 <body>
 
+<!-- 背景音樂播放器（固定在畫面外，主頁與對局都可用） -->
+<div id="bgm" aria-hidden="true"></div>
+
 <!-- ================= 大廳 ================= -->
 <div id="lobby">
+  <button id="btnBgmLobby" class="act" title="背景音樂">🎵 音樂</button>
   <div class="lobby-inner">
     <div class="brand">
       <h1>三國殺</h1>
@@ -72,7 +76,6 @@
   </div>
   <div id="log"></div>
   <div id="bottom">
-    <div id="bgm" aria-hidden="true"></div>
     <div id="topbar">
       <button id="btnSound" class="act">🔊 音效開</button>
       <button id="btnSpeed" class="act">速度：正常</button>

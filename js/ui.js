@@ -1069,7 +1069,26 @@
     document.removeEventListener('click', once);
   }, { once: true });
 
-  const btnBgm = document.querySelector('#btnBgm');
+  const btnBgmLobby = document.querySelector('#btnBgmLobby');
+  function syncBgmBtns() {
+    [document.querySelector('#btnBgm'), btnBgmLobby].forEach(b => {
+      if (!b) return;
+      b.classList.toggle('on', bgmWanted);
+      b.textContent = bgmWanted ? '🎵 音樂開' : '🎵 音樂關';
+    });
+  }
+
+  if (btnBgmLobby) {
+    btnBgmLobby.onclick = (ev) => {
+      ev.stopPropagation();
+      bgmWanted = !bgmWanted;
+      if (bgmWanted) { initBGM(); if (ytPlayer && ytPlayer.playVideo) ytPlayer.playVideo(); }
+      else { if (ytPlayer && ytPlayer.pauseVideo) ytPlayer.pauseVideo(); if (localBgm) localBgm.pause(); }
+      syncBgmBtns();
+    };
+  }
+  syncBgmBtns();
+
   if (btnBgm) {
     btnBgm.onclick = () => {
       bgmWanted = !bgmWanted;

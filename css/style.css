@@ -431,3 +431,10 @@ button{font-family:inherit;cursor:pointer}
 .gcard{display:flex;flex-direction:column}
 .gcard .skills{flex:1 1 auto}
 .gcard .gmore{margin-top:auto}
+
+/* 大廳背景音樂鈕 + 畫面外的播放器容器 */
+#bgm{position:fixed;left:-9999px;top:0;width:1px;height:1px;overflow:hidden}
+#btnBgmLobby{position:fixed;right:14px;top:12px;z-index:30;background:rgba(10,12,16,.7);
+  border:1px solid rgba(217,180,106,.45);color:#e6d6ae;border-radius:20px;
+  padding:5px 12px;font-size:12px;cursor:pointer;backdrop-filter:blur(6px)}
+#btnBgmLobby.on{background:rgba(217,180,106,.9);color:#1a1409;font-weight:800}
