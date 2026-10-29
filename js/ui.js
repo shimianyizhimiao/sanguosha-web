@@ -635,7 +635,12 @@
     }
 
     if (req.kind === 'play') {
-      (req.skills || []).forEach(sk => mk('skill', `【${sk}】`, () => resolvePending({ skill: sk })));
+      (req.skills || []).forEach(sk => {
+        const btn = mk('skill', `【${sk}】`, () => resolvePending({ skill: sk }));
+        const def = (window.SGS_SKILLS || {})[sk];
+        if (def && def.desc) btn.title = def.desc;      // 滑鼠停留可看技能說明
+        btn.dataset.skill = sk;
+      });
       mk('', '結束出牌', () => resolvePending({ end: true }));
       return;
     }

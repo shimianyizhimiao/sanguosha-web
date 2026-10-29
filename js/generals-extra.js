@@ -747,6 +747,103 @@ SK['忍戒'] = {
   /* =========================================================
      界將（界限突破）25 隻
      ========================================================= */
+  /* ---- 界將補技能 ---- */
+  SK['奮威'] = {
+    type: 'trigger',
+    desc: '限定技，當你使用的一張錦囊牌指定多於一個目標後，你可以令此牌對其中任意名目標角色無效。',
+    events: {
+      async trickTargets(g, ctx, p) {
+        if (ctx.player !== p || p.usedLimit['奮威']) return;
+        const others = ctx.targets.filter(q => q !== p && q.alive);
+        if (!others.length) return;
+        const yes = await g.askSkill(p, '奮威', '【奮威】要令此牌對部分目標無效嗎？');
+        if (!yes) return;
+        const pick = await g.askTargets(p, {
+          prompt: '【奮威】選擇不受此牌影響的目標',
+          candidates: others, min: 1, max: others.length, cancelable: true,
+        });
+        if (!pick.length) return;
+        p.usedLimit['奮威'] = true;
+        ctx.negate.push(...pick);
+        g.log(`${g.nameOf(p)} 發動限定技【奮威】`, 'skill');
+      },
+    },
+  };
+
+  SK['利馭'] = {
+    type: 'trigger',
+    desc: '當你的【殺】對一名其他角色造成傷害後，你可以獲得其區域內的一張牌；若獲得的不是裝備牌，其摸一張牌；若是裝備牌，視為對其選擇的另一名角色使用【決鬥】。',
+    events: {
+      async damaged(g, ctx, p) {
+        if (ctx.source !== p || ctx.target === p) return;
+        const c = ctx.card;
+        if (!c || !['殺', '火殺', '雷殺'].includes(c.name)) return;
+        const t = ctx.target;
+        if (!t.alive) return;
+        const pool = [...t.hand, ...['weapon', 'armor', 'horse+', 'horse-', 'treasure'].map(k => t.equips[k]).filter(Boolean)];
+        if (!pool.length) return;
+        const yes = await g.askSkill(p, '利馭', `【利馭】獲得 ${g.nameOf(t)} 的一張牌？`);
+        if (!yes) return;
+        const pick = await g.askCards(p, { pool, min: 1, max: 1, prompt: '【利馭】選擇獲得一張牌' });
+        const card = (pick && pick[0]) || pool[0];
+        g.removeCardFromPlayer(t, card);
+        p.hand.push(card);
+        g.log(`${g.nameOf(p)} 【利馭】獲得 ${g.nameOf(t)} 的一張牌`, 'skill');
+        if (card.type === 'equip') {
+          const others = g.others(p).filter(q => q.alive && q !== t);
+          if (others.length) {
+            const t2 = await g.askTargets(p, { prompt: '【利馭】視為對一名角色使用【決鬥】', candidates: others, cancelable: true });
+            if (t2.length) {
+              const virt = { id: 'v-liyu', name: '決鬥', type: 'trick', virtual: true, suit: '♠', rank: 7 };
+              await g.useTrick(p, virt, '決鬥', [t2[0]]);
+            }
+          }
+        } else {
+          g.drawCards(t, 1, '利馭');
+        }
+      },
+    },
+  };
+
+  SK['除癘'] = {
+    type: 'active',
+    desc: '出牌階段限一次，你可以選擇任意名勢力各不相同的其他角色，然後你棄置你和這些角色的各一張牌。被棄置♠牌的角色各摸一張牌。',
+    canUse(g, p) {
+      return !p.turnFlags.chuli && p.hand.length > 0 && g.others(p).some(q => q.alive);
+    },
+    async active(g, p) {
+      const cand = g.others(p).filter(q => q.alive);
+      if (!cand.length) return;
+      const pick = await g.askTargets(p, {
+        prompt: '【除癘】選擇勢力各不相同的其他角色',
+        candidates: cand, min: 1, max: Math.min(4, cand.length), cancelable: true,
+      });
+      if (!pick.length) return;
+      const seen = new Set(), tgs = [];
+      for (const q of pick || []) {
+        const k = (q.generals[0] || {}).kingdom || '群';
+        if (seen.has(k)) continue;
+        seen.add(k); tgs.push(q);
+      }
+      if (!tgs.length) return;
+      const mine = await g.askCards(p, { min: 1, max: 1, prompt: '【除癘】棄置你的一張牌', cancelable: true });
+      if (!mine.length) return;
+      p.turnFlags.chuli = true;
+      g.consumeCards(p, mine, '除癘');
+      g.log(`${g.nameOf(p)} 發動【除癘】`, 'skill');
+      if (mine[0].suit === '♠') g.drawCards(p, 1, '除癘');
+      for (const q of tgs) {
+        const pool = [...q.hand, ...['weapon', 'armor', 'horse+', 'horse-', 'treasure'].map(k => q.equips[k]).filter(Boolean)];
+        if (!pool.length) continue;
+        const card = pool[Math.floor(g.rand() * pool.length)];
+        g.removeCardFromPlayer(q, card);
+        g.toDiscard([card]);
+        g.log(`${g.nameOf(p)} 棄置 ${g.nameOf(q)} 的一張牌`, 'info');
+        if (card.suit === '♠') g.drawCards(q, 1, '除癘');
+      }
+    },
+  };
+
   const JIE = [
     ['劉備', '蜀', 4, 'male', ['仁德·界', '激將']],
     ['關羽', '蜀', 4, 'male', ['武聖']],
@@ -763,15 +860,15 @@ SK['忍戒'] = {
     ['郭嘉', '魏', 3, 'male', ['天妒', '遺計']],
     ['甄姬', '魏', 3, 'female', ['傾國', '洛神']],
     ['孫權', '吳', 4, 'male', ['制衡·界', '救援']],
-    ['甘寧', '吳', 4, 'male', ['奇襲']],
+    ['甘寧', '吳', 4, 'male', ['奇襲', '奮威']],
     ['呂蒙', '吳', 4, 'male', ['克己']],
     ['黃蓋', '吳', 4, 'male', ['苦肉·界']],
     ['周瑜', '吳', 3, 'male', ['英姿·界', '反間']],
     ['大喬', '吳', 3, 'female', ['國色', '流離']],
     ['陸遜', '吳', 3, 'male', ['謙遜', '連營']],
     ['孫尚香', '吳', 3, 'female', ['結姻', '梟姬']],
-    ['華佗', '群', 3, 'male', ['急救', '青囊·界']],
-    ['呂布', '群', 4, 'male', ['無雙']],
+    ['華佗', '群', 3, 'male', ['急救', '除癘']],
+    ['呂布', '群', 4, 'male', ['無雙', '利馭']],
     ['貂蟬', '群', 3, 'female', ['離間', '閉月']],
   ];
   for (const [name, kingdom, hp, gender, skills] of JIE) {

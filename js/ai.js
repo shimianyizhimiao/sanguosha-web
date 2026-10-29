@@ -187,6 +187,8 @@
       if (has('綻火') && g.alive().some(q => q.chained)) return '綻火';
       // 界仁德：手牌多就給隊友
       if (has('仁德·界') && p.hand.length >= 3 && g.others(p).some(q => this.isFriend(g, p, q))) return '仁德·界';
+      // 除癘：能棄對手牌就用
+      if (has('除癘') && !p.turnFlags.chuli && p.hand.length > 1) return '除癘';
       // 極略：有忍就用（拿制衡／集智等於賺）
       if (has('極略') && (p.marks['忍'] || 0) > 0 && !p.turnFlags.jilue) return '極略';
       // 神憤：暴怒滿 6 就開

@@ -89,7 +89,12 @@
     }
 
     toDiscard(cards) {
-      for (const c of cards) if (c) this.discardPile.push(c);
+      for (const c of cards) {
+        if (!c) continue;
+        // 虛擬牌（技能合成、沒有實體子牌）不進棄牌堆，否則牌數會多出來
+        if (c.virtual && !(c.subcards && c.subcards.length)) continue;
+        this.discardPile.push(c);
+      }
     }
 
     /* 從角色任一區域移除卡（手牌/裝備/判定區） */
@@ -988,10 +993,28 @@
       }
       if (!tgts.length) return;
 
-      p.hand.splice(p.hand.indexOf(card), 1);
+      const hi = p.hand.indexOf(card);
+      if (hi >= 0) p.hand.splice(hi, 1);            // 實體牌：從手牌移除
+      else if (card.subcards && card.subcards.length) {
+        for (const sc of card.subcards.slice()) this.removeCardFromPlayer(p, sc);
+      }
+      // 虛擬牌不在手牌裡：不要動到手牌（以前 indexOf=-1 會誤刪最後一張）
       this.stats.cards++;
       this.log(`${this.nameOf(p)} 使用 ${C.cardText(card)}${tgts[0] !== p || name !== '無中生有' ? ' → ' + tgts.map(t => this.nameOf(t)).join('、') : ''}`, 'use');
       this.emit('trick', { player: p, name, targets: tgts, card });
+      // 錦囊多目標時，允許技能令其中部分目標無效（例：界甘寧【奮威】）
+      if (tgts.length > 1) {
+        const ctx2 = { player: p, card, name, targets: tgts.slice(), negate: [] };
+        await this.trigger('trickTargets', ctx2);
+        if (ctx2.negate.length) {
+          for (const q of ctx2.negate) {
+            const i = tgts.indexOf(q);
+            if (i >= 0) tgts.splice(i, 1);
+            this.log(`${this.nameOf(q)} 因【奮威】不受【${name}】影響`, 'skill');
+          }
+          if (!tgts.length) { this.toDiscard([card]); return; }
+        }
+      }
       await this.trigger('cardUsed', { player: p, card, name, targets: tgts });
 
       // 無懈可擊
