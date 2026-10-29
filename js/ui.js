@@ -48,6 +48,12 @@
     { key: 'god', label: '神將', sub: '神話再臨' },
     { key: 'sp', label: 'SP 將', sub: '' },
     { key: 'famous', label: '一將成名', sub: '' },
+    { key: 'windfire', label: '風林火山', sub: '神話再臨' },
+    { key: 'menfa', label: '門閥士族', sub: '' },
+    { key: 'mo', label: '魔', sub: '魔將' },
+    { key: 'mou', label: '謀', sub: '謀攻篇' },
+    { key: 'guozhan', label: '國戰', sub: '國戰將池' },
+    { key: 'other', label: '其他', sub: '' },
     { key: 'custom', label: '自定義', sub: '' },
   ];
 
@@ -126,8 +132,12 @@
         const sk = window.SGS_SKILLS[s];
         return `<div>【${s}】</div><div class="desc">${sk ? sk.desc : ''}</div>`;
       }).join('');
+      const todoN = g.skills.filter(x => (window.SGS_SKILLS[x] || {}).todo).length;
+      const allTodo = todoN === g.skills.length && todoN > 0;
+      card.classList.toggle('untested', allTodo);
       card.innerHTML = `
         <div class="gport"><img alt=""></div>
+        ${allTodo ? '<div class="gtodo">技能未實作 · 只有基本牌</div>' : ''}
         <div class="kingdom">${KINGDOM_TXT[g.kingdom] || g.kingdom} · ${(window.SGS_PACK_NAMES[g.pack] || g.pack)}</div>
         <div class="gname">${g.name}</div>
         <div class="hprow"></div>
@@ -477,7 +487,9 @@
       g.skills.forEach(name => {
         const sk = (window.SGS_SKILLS || {})[name] || {};
         const row = el('div', 'sheet-skill');
-        row.appendChild(el('div', 'sk-name', `【${name}】`));
+        const nmEl = el('div', 'sk-name', `【${name}】`);
+        if (sk.todo) nmEl.appendChild(el('span', 'sk-todo', '未實作'));
+        row.appendChild(nmEl);
         row.appendChild(el('div', 'sk-desc', sk.desc || '（尚無說明）'));
         body.appendChild(row);
       });
