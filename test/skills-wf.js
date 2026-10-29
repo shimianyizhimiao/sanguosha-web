@@ -632,6 +632,134 @@ function mk(a, b) {
     check(t.hand.length === th + 1, `潰誅：目標摸一張（${th} → ${t.hand.length}）`);
   }
 
+
+  /* 44. 紅顏：判定 ♠ 視為 ♥（樂不思蜀不生效） */
+  {
+    const g = mk('魏延');
+    const p = g.players[0];
+    p.skills = ['紅顏'];
+    const spade = CARDS.buildDeck(['std']).find(c => c.suit === '♠');
+    check(g.suitOf(p, spade) === '♥', `紅顏：♠${spade.rank} 視為 ♥`);
+    const g2 = mk('魏延');
+    check(g2.suitOf(g2.players[0], spade) === '♠', '紅顏：沒有技能時花色不變');
+  }
+
+  /* 45. 巨象：南蠻對自己無效 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['巨象'];
+    check(g.canBeTargeted(t, p, '南蠻入侵') === false, '巨象：【南蠻入侵】對你無效');
+    check(g.canBeTargeted(t, p, '殺') === true, '巨象：仍可被【殺】指定');
+  }
+
+  /* 46. 烈刃：拼點贏 → 獲得目標一張牌 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['烈刃'];
+    const deck = CARDS.buildDeck(['std']);
+    const big = deck.find(c => c.rank === 13);          // K
+    const small = deck.find(c => c.rank === 2);
+    p.hand.length = 0; p.hand.push(big);
+    t.hand.length = 0; t.hand.push(small, ...deck.slice(0, 2));
+    g.askSkill = async () => true;
+    g.askCard = async (who, opt) => (opt.pool || [])[0] || null;
+    const th = t.hand.length;
+    await g.trigger('shaTargeted', { source: p, target: t, card: deck.find(c => c.name === '殺') });
+    check(p.hand.length === 1, `烈刃：拼掉一張、贏得一張 → 手牌 1（實際 ${p.hand.length}）`);
+    check(t.hand.length <= th, '烈刃：目標少了一張牌');
+  }
+
+  /* 47. 天義：拼點贏 → 多一張殺、無距離、可多選目標；沒贏 → 不能出殺 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['天義'];
+    const deck = CARDS.buildDeck(['std']);
+    p.hand.length = 0; p.hand.push(deck.find(c => c.rank === 13));
+    t.hand.length = 0; t.hand.push(deck.find(c => c.rank === 2));
+    p.turnFlags = {};
+    g.askTargets = async () => [t];
+    g.askCard = async (who, opt) => (opt.pool || [])[0] || null;
+    await root.SGS_SKILLS['天義'].active(g, p);
+    check(p.turnFlags.shaNoRange === true && g.shaLimit(p) === 2, `天義：贏 → 距離不限、可出 ${g.shaLimit(p)} 張殺`);
+    check(g.shaTargets(p) === 2, `天義：可多選一個目標（${g.shaTargets(p)}）`);
+
+    const g2 = mk('魏延');
+    const q = g2.players[0], q2 = g2.players[1];
+    q.skills = ['天義'];
+    const deck2 = CARDS.buildDeck(['std']);
+    q.hand.length = 0; q.hand.push(deck2.find(c => c.rank === 2));
+    q2.hand.length = 0; q2.hand.push(deck2.find(c => c.rank === 13));
+    q.turnFlags = {};
+    g2.askTargets = async () => [q2];
+    g2.askCard = async (who, opt) => (opt.pool || [])[0] || null;
+    await root.SGS_SKILLS['天義'].active(g2, q);
+    const shaLeft = q.hand.filter(c => c.name === '殺').length;
+    check(q.turnFlags.noSha === true, '天義：沒贏 → 本回合不能使用【殺】');
+    check(g2.usableCards(q).every(u => (u.asName || u.card.name) !== '殺'), '天義：出牌清單裡沒有【殺】');
+  }
+
+  /* 48. 志繼：沒有手牌時覺醒 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0];
+    p.skills = ['志繼'];
+    p.hand.length = 0;
+    p.hp = 3; p.maxHp = 4;
+    g.ask = async (who, req) => (req && req.kind === 'choice' ? 1 : []);   // 選「摸兩張牌」，觀星回空陣列
+    await g.trigger('turnStart', { player: p });
+    check(p.maxHp === 3, `志繼：體力上限 -1（4 → ${p.maxHp}）`);
+    check(p.skills.includes('觀星'), '志繼：獲得【觀星】');
+    check(p.hand.length >= 2, `志繼：摸兩張（實際 ${p.hand.length}）`);
+  }
+
+  /* 49. 從諫：多目標錦囊 → 交一張給另一目標並摸牌 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['從諫'];
+    const deck = CARDS.buildDeck(['std']);
+    const plain = deck.find(c => c.type === 'basic');
+    p.hand.length = 0; p.hand.push(plain);
+    g.askSkill = async () => true;
+    g.askCard = async (who, opt) => (opt.pool || [])[0] || null;
+    g.askTargets = async () => [t];
+    const th = t.hand.length, ph = p.hand.length;
+    await g.trigger('trickTargets', { player: t, card: deck[1], name: '萬箭齊發', targets: [p, t], negate: [] });
+    check(t.hand.length === th + 1, '從諫：交給另一目標一張牌');
+    check(p.hand.length === ph, `從諫：交一張、摸一張，手牌不變（${ph} → ${p.hand.length}）`);
+  }
+
+  /* 50. 雄亂：廢除裝備區、目標本回合不能使用手牌 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['雄亂'];
+    g.askTargets = async () => [t];
+    const wpn = CARDS.buildDeck(['std']).find(c => c.name === '青釭劍');
+    p.hand.push(wpn); g.equipCard(p, wpn);
+    await root.SGS_SKILLS['雄亂'].active(g, p);
+    check(!!p.deadSlots.weapon && !!p.deadSlots.armor, '雄亂：裝備欄已廢除');
+    check(p.usedXiongluan === true, '雄亂：限定技已用');
+    t.turnCount = p.turnCount;
+    check(g.usableCards(t).length === 0, '雄亂：目標本回合不能使用手牌');
+  }
+
+  /* 51. 鎮骨：把手牌數綁給目標 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['鎮骨'];
+    p.hand.length = 0; p.hand.push(...CARDS.buildDeck(['std']).slice(0, 2));
+    t.hand.length = 0; t.hand.push(...CARDS.buildDeck(['std']).slice(0, 5));
+    g.askSkill = async () => true;
+    g.askTargets = async () => [t];
+    await g.trigger('turnEnd', { player: p });
+    check(t.hand.length === 2, `鎮骨：目標手牌調整為與你相同 2 張（實際 ${t.hand.length}）`);
+  }
+
   console.log(fails === 0 ? '\n全部通過' : `\n${fails} 項失敗`);
   process.exit(fails ? 1 : 0);
 })();

@@ -971,14 +971,15 @@
       if (!t || !t.length) return;
       const tgt = t[0];
       p.turnFlags['挑釁'] = true;
-      const sha = C.buildDeck(['std']).find(c => c.name === '殺');
+      // 不要從新牌堆借牌物件：那會讓同一張牌 id 在場上出現兩次（卡牌守恒報重複）
+      const sha = { id: 'v挑釁' + Date.now(), name: '殺', type: 'basic', virtual: true, subcards: [], suit: '♠', rank: 7, skill: '挑釁' };
       const r = await g.askForCard(tgt, '殺', {
         prompt: `${g.nameOf(p)} 對你發動【挑釁】，是否使用一張【殺】？`, cancelable: true,
       });
       if (r && r.cards) {
         g.consumeCards(tgt, r.cards, '殺');
         g.log(`${g.nameOf(tgt)} 對 ${g.nameOf(p)} 使用【殺】（【挑釁】）`, 'skill');
-        await g.useShaOn(tgt, p, Object.assign({}, sha, { skill: '挑釁' }));
+        await g.useShaOn(tgt, p, sha);
       } else {
         const pool = [...tgt.hand, ...equipSlots.map(sl => tgt.equips[sl]).filter(Boolean)];
         if (!pool.length) return;
@@ -1111,6 +1112,190 @@
   const DONE6 = ['強襲', '好施', '挑釁', '觀星（標）', '觀星（界）', '英姿（標）', '英姿（界）', '奇制', '進趨', '潰誅'];
   for (const n of DONE6) if (SK[n]) { delete SK[n].todo; SK[n].impl = true; }
   root.SGS_SKILLS_DONE = (root.SGS_SKILLS_DONE || []).concat(DONE6);
+
+
+  /* ═══════════ 第七批 ═══════════ */
+
+  /* ── 紅顏：♠ 視為 ♥（判定入口統一走 engine.suitOf）─────────── */
+  SK['紅顏'] = {
+    type: 'locked',
+    desc: '鎖定技，你的♠牌視為♥牌。',
+  };
+
+  /* ── 巨象：南蠻無效，且他人使用的南蠻結算後由你獲得 ────────── */
+  SK['巨象'] = {
+    type: 'locked',
+    desc: '鎖定技，【南蠻入侵】對你無效；其他角色使用的【南蠻入侵】結算結束後，你獲得之。',
+    cannotBeTargeted(g, p, src, cardName) { return cardName === '南蠻入侵'; },
+  };
+
+  /* ── 烈刃：使用【殺】指定目標後拼點，贏則拿一張牌，沒贏則交換 ── */
+  SK['烈刃'] = {
+    type: 'trigger',
+    desc: '當你使用【殺】指定目標後，你可以與目標角色拼點，若你：贏，你獲得其一張牌；沒贏，你與其交換拼點的牌。',
+    events: {
+      async shaTargeted(g, ctx, p) {
+        if (ctx.source !== p || !isSha(ctx.card)) return;
+        const t = ctx.target;
+        if (!t || !t.alive) return;
+        if (!p.hand.length || !t.hand.length) return;
+        const yes = await g.askSkill(p, '烈刃', `【烈刃】是否與 ${g.nameOf(t)} 拼點？`);
+        if (!yes) return;
+        const r = await g.pindian(p, t, '烈刃');
+        if (!r) return;
+        if (r.win) {
+          const pool = [...t.hand, ...equipSlots.map(sl => t.equips[sl]).filter(Boolean)];
+          if (!pool.length) return;
+          const c = pool[Math.floor(Math.random() * pool.length)];
+          if (c.slot && t.equips[c.slot] === c) { t.equips[c.slot] = null; g.onEquipChange && g.onEquipChange(t); }
+          else { const i = t.hand.indexOf(c); if (i >= 0) t.hand.splice(i, 1); }
+          p.hand.push(c);
+          g.log(`【烈刃】${g.nameOf(p)} 拼點獲勝，獲得 ${g.nameOf(t)} 一張牌`, 'skill');
+        } else {
+          // 沒贏：交換拼點的兩張牌（把它們從棄牌堆拿回來對調）
+          const ci = g.discardPile.indexOf(r.cp), cj = g.discardPile.indexOf(r.cq);
+          if (ci >= 0) g.discardPile.splice(ci, 1);
+          if (cj >= 0) g.discardPile.splice(cj, 1);
+          t.hand.push(r.cp);
+          p.hand.push(r.cq);
+          g.log(`【烈刃】沒贏，${g.nameOf(p)} 與 ${g.nameOf(t)} 交換拼點的牌`, 'skill');
+        }
+      },
+    },
+  };
+
+  /* ── 天義：拼點，贏則本回合加成，沒贏則不能使用【殺】────────── */
+  SK['天義'] = {
+    type: 'active',
+    desc: '出牌階段限一次，你可以與一名角色拼點：若你贏，本回合你可以多使用一張【殺】，使用【殺】無距離限制且可以多選擇一個目標；若你沒贏，本回合你不能使用【殺】。',
+    canUse(g, p) {
+      return !(p.turnFlags && p.turnFlags['天義']) && p.hand.length > 0 && g.others(p).length > 0;
+    },
+    async active(g, p) {
+      if (p.turnFlags['天義']) return;
+      const t = await g.askTargets(p, { prompt: '【天義】選擇一名角色拼點', min: 1, max: 1, filter: q => q.alive && q.hand.length > 0 });
+      if (!t || !t.length) return;
+      const tgt = t[0];
+      p.turnFlags['天義'] = true;
+      const r = await g.pindian(p, tgt, '天義');
+      if (!r) return;
+      if (r.win) {
+        p.turnFlags.extraSha = (p.turnFlags.extraSha || 0) + 1;
+        p.turnFlags.shaNoRange = true;
+        p.turnFlags.shaExtraTarget = (p.turnFlags.shaExtraTarget || 0) + 1;
+        g.log(`【天義】拼點獲勝：本回合多一張【殺】、無距離限制、可多選一個目標`, 'skill');
+      } else {
+        p.turnFlags.noSha = true;
+        g.log('【天義】沒贏：本回合不能使用【殺】', 'skill');
+      }
+      g.update();
+    },
+  };
+
+  /* ── 志繼：覺醒技，沒有手牌時回复／摸牌，減上限並獲得觀星 ───── */
+  SK['志繼'] = {
+    type: 'awaken',
+    desc: '覺醒技，準備階段，若你沒有手牌，你回復1點體力或摸兩張牌，減1點體力上限，然後獲得「觀星」。',
+    events: {
+      async turnStart(g, ctx, p) {
+        if (ctx.player !== p || p.awakenedZj) return;
+        if (p.hand.length > 0) return;
+        const ch = await g.ask(p, {
+          kind: 'choice', prompt: '【志繼】選擇一項', options: ['回復 1 點體力', '摸兩張牌'], cancelable: true,
+        });
+        if (ch === null || ch === undefined) return;
+        p.awakenedZj = true;
+        if (ch === 0) await g.heal(p, 1, '志繼');
+        else g.drawCards(p, 2);
+        g.loseMaxHp(p, 1);
+        if (!p.skills.includes('觀星')) p.skills.push('觀星');
+        g.log(`${g.nameOf(p)} 覺醒【志繼】：獲得【觀星】`, 'skill');
+        g.update();
+      },
+    },
+  };
+
+  /* ── 從諫：成為多目標錦囊的目標時，交一張牌給另一目標並摸牌 ── */
+  SK['從諫'] = {
+    type: 'trigger',
+    desc: '當你成為目標數大於1的錦囊牌目標時，你可以交給其中一名目標角色一張牌，然後摸一張牌。若你給出的牌是裝備牌，改為摸兩張牌。',
+    events: {
+      async trickTargets(g, ctx, p) {
+        if (!ctx.targets || ctx.targets.length < 2) return;
+        if (!ctx.targets.includes(p) || !p.hand.length) return;
+        if (ctx._congjian) return;
+        const others = ctx.targets.filter(q => q !== p && q.alive);
+        if (!others.length) return;
+        const yes = await g.askSkill(p, '從諫');
+        if (!yes) return;
+        ctx._congjian = true;
+        const c = await g.askCard(p, { prompt: '【從諫】交給其中一名目標一張牌', pool: p.hand.slice() });
+        if (!c) return;
+        const t = await g.askTargets(p, { prompt: '【從諫】選擇交給哪個目標', min: 1, max: 1, candidates: others });
+        const tgt = (t && t[0]) || others[0];
+        const i = p.hand.indexOf(c);
+        if (i >= 0) p.hand.splice(i, 1);
+        tgt.hand.push(c);
+        g.drawCards(p, c.slot ? 2 : 1);
+        g.log(`${g.nameOf(p)} 發動【從諫】，交給 ${g.nameOf(tgt)} ${C.cardText(c)}`, 'skill');
+      },
+    },
+  };
+
+  /* ── 雄亂：限定技，廢除判定區與裝備區換取強攻 ─────────────── */
+  SK['雄亂'] = {
+    type: 'limited',
+    desc: '限定技，出牌階段，你可以廢除你的判定區和裝備區，然後指定一名其他角色，本回合你對其使用牌無距離和次數限制，其不能使用或打出手牌。',
+    canUse(g, p) { return !p.usedXiongluan && g.others(p).length > 0; },
+    async active(g, p) {
+      if (p.usedXiongluan) return;
+      const t = await g.askTargets(p, { prompt: '【雄亂】選擇一名其他角色', min: 1, max: 1 });
+      if (!t || !t.length) return;
+      const tgt = t[0];
+      p.usedXiongluan = true;
+      for (const sl of ['weapon', 'armor', 'horse+', 'horse-', 'treasure']) {
+        if (!(p.deadSlots && p.deadSlots[sl])) g.abolishSlot(p, sl);
+      }
+      p.turnFlags.shaNoRange = true;
+      p.turnFlags.noShaLimit = true;
+      tgt.silentHand = p.turnCount;      // 本回合不能使用或打出手牌（由下面 hook 判定）
+      g.log(`${g.nameOf(p)} 發動【雄亂】：廢除判定區與裝備區，${g.nameOf(tgt)} 本回合不能使用手牌`, 'skill');
+      g.update();
+    },
+  };
+
+  /* ── 鎮骨：把手牌數綁給另一名角色 ─────────────────────────── */
+  SK['鎮骨'] = {
+    type: 'trigger',
+    desc: '結束階段，你可以選擇一名其他角色，你的回合結束時和該角色的下個回合結束時，其將手牌摸至或棄至與你手牌數相同（最多摸至五張）。',
+    events: {
+      async turnEnd(g, ctx, p) {
+        if (ctx.player !== p) return;
+        const yes = await g.askSkill(p, '鎮骨');
+        if (!yes) return;
+        const t = await g.askTargets(p, { prompt: '【鎮骨】選擇一名其他角色', min: 1, max: 1 });
+        if (!t || !t.length) return;
+        const tgt = t[0];
+        p.zhengu = tgt.id;
+        const sync = () => {
+          const want = Math.min(5, p.hand.length);
+          if (tgt.hand.length < want) g.drawCards(tgt, want - tgt.hand.length);
+          else if (tgt.hand.length > want) {
+            const over = tgt.hand.length - want;
+            const cs = tgt.hand.slice(0, over);
+            g.consumeCards(tgt, cs, '鎮骨');
+          }
+          g.log(`【鎮骨】${g.nameOf(tgt)} 的手牌調整為 ${want} 張`, 'skill');
+        };
+        sync();
+        g.log(`${g.nameOf(p)} 發動【鎮骨】，目標 ${g.nameOf(tgt)}`, 'skill');
+      },
+    },
+  };
+
+  const DONE7 = ['紅顏', '巨象', '烈刃', '天義', '志繼', '從諫', '雄亂', '鎮骨'];
+  for (const n of DONE7) if (SK[n]) { delete SK[n].todo; SK[n].impl = true; }
+  root.SGS_SKILLS_DONE = (root.SGS_SKILLS_DONE || []).concat(DONE7);
 
   const DONE = ['血裔', '據守', '狂骨', '破虜', '烈弓', '直諫', '固政', '英魂'];
   for (const n of DONE) if (SK[n]) { delete SK[n].todo; SK[n].impl = true; }

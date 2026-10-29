@@ -290,6 +290,7 @@
     /* 回傳「可以拿來當 name 用」的選項（含技能轉化） */
     responseOptions(p, name, ctx) {
       const out = [];
+      if (p.silentHand != null && p.silentHand === p.turnCount) return out;   // 雄亂：不能打出手牌
       for (const c of p.hand) {
         if (c.name === name || (name === '殺' && C.isSha(c))) out.push({ cards: [c], label: C.cardText(c) });
       }
@@ -489,8 +490,7 @@
           for (const slot of ['weapon', 'armor', 'horse+', 'horse-', 'treasure']) {
             if (p.equips[slot]) { all.push(p.equips[slot]); p.equips[slot] = null; }
           }
-          if (p.judgeZone) for (const j of p.judgeZone.slice()) all.push(j);
-          p.judgeZone = [];
+          if (p.judge && p.judge.length) all.push(...p.judge.splice(0));
           p.hand.length = 0;
           this.toDiscard(all);
           p.hp = Math.min(3, p.maxHp);
@@ -545,6 +545,8 @@
       }
       this.toDiscard(p.judge.splice(0));
       if (p.stars && p.stars.length) this.toDiscard(p.stars.splice(0));   // 七星：星也要進棄牌堆
+      if (p.buqu && p.buqu.length) this.toDiscard(p.buqu.splice(0));       // 不屈牌：死亡時一併棄置
+      if (p.ren) { this.toDiscard([p.ren]); p.ren = null; }                // 明任的「任」
       this.log(`${this.nameOf(p)}（${p.identityName}）陣亡`, 'death');
       this.emit('death', { player: p, source });
       this.update();
@@ -637,6 +639,31 @@
           await sk.events[event](this, ctx, p);
         }
       }
+    }
+
+    /* 紅顏等「花色視為」的統一入口 */
+    suitOf(p, c) {
+      if (!c) return null;
+      if (p && p.skills && p.skills.includes('紅顏') && c.suit === '♠' && !this.isSilenced(p, '紅顏')) return '♥';
+      return c.suit;
+    }
+
+    /* 拼點：雙方各出一張手牌比點數，回傳 { win, cp, cq }（cp/cq 已進棄牌堆） */
+    async pindian(p, q, reason) {
+      if (!p.hand.length || !q.hand.length) return null;
+      const cp = await this.askCard(p, { prompt: `【${reason}】選擇一張手牌拼點`, pool: p.hand.slice() });
+      if (!cp) return null;
+      const cq = await this.askCard(q, { prompt: `【${reason}】選擇一張手牌拼點`, pool: q.hand.slice() });
+      if (!cq) return null;
+      const rankVal = c => (c.rank === 1 ? 14 : (typeof c.rank === 'number' ? c.rank : parseInt(c.rank, 10) || 0));
+      if (cp.rank === 1) { /* A 最大 */ }
+      const rp = rankVal(cp), rq = rankVal(cq);
+      const ip = p.hand.indexOf(cp), iq = q.hand.indexOf(cq);
+      if (ip >= 0) p.hand.splice(ip, 1);
+      if (iq >= 0) q.hand.splice(iq, 1);
+      this.toDiscard([cp, cq]);
+      this.log(`【${reason}】拼點：${this.nameOf(p)} ${C.cardText(cp)} vs ${this.nameOf(q)} ${C.cardText(cq)} → ${rp > rq ? this.nameOf(p) + ' 贏' : rp < rq ? this.nameOf(q) + ' 贏' : '平手（沒贏）'}`, 'skill');
+      return { win: rp > rq, tie: rp === rq, cp, cq, rp, rq };
     }
 
     /* ============================ 判定 ============================ */
@@ -775,21 +802,21 @@
         p.judge.splice(p.judge.indexOf(jc), 1);
         if (jc.name === '樂不思蜀') {
           const res = await this.judge(p, '樂不思蜀');
-          if (res && res.suit !== '♥') {
+          if (res && this.suitOf(p, res) !== '♥') {
             p.turnFlags.skipPlay = true;
             this.log(`樂不思蜀生效：${this.nameOf(p)} 跳過出牌階段`, 'warn');
           }
           this.toDiscard([jc]);
         } else if (jc.name === '兵糧寸斷') {
           const res = await this.judge(p, '兵糧寸斷');
-          if (res && res.suit !== '♣') {
+          if (res && this.suitOf(p, res) !== '♣') {
             p.turnFlags.skipDraw = true;
             this.log(`兵糧寸斷生效：${this.nameOf(p)} 跳過摸牌階段`, 'warn');
           }
           this.toDiscard([jc]);
         } else if (jc.name === '閃電') {
           const res = await this.judge(p, '閃電');
-          if (res && res.suit === '♠' && res.rank >= 2 && res.rank <= 9) {
+          if (res && this.suitOf(p, res) === '♠' && res.rank >= 2 && res.rank <= 9) {
             this.toDiscard([jc]);
             await this.damage(null, p, 3, 'thunder', jc);
           } else {
@@ -892,11 +919,13 @@
     /* 計算現在能主動使用的牌（含技能轉化） */
     usableCards(p) {
       const out = [];
+      if (p.silentHand != null && p.silentHand === p.turnCount) return out;   // 雄亂：不能使用手牌
       const add = (card, skill, asName) => out.push({ card, skill: skill || null, asName: asName || null });
 
+      const noSha = p.turnFlags && p.turnFlags.noSha;
       for (const c of p.hand) {
         if (c.name === '閃' || c.name === '無懈可擊') continue;
-        if (C.isSha(c) && p.turnFlags.shaUsed >= this.shaLimit(p)) continue;
+        if (C.isSha(c) && (noSha || p.turnFlags.shaUsed >= this.shaLimit(p))) continue;
         if (!this.hasValidTarget(p, c)) continue;
         add(c);
       }
@@ -1250,6 +1279,15 @@
         default:
           this.log(`（未實作錦囊 ${name}）`, 'warn');
       }
+      // 巨象：其他角色使用的【南蠻入侵】結算後由持有者獲得
+      if (name === '南蠻入侵') {
+        const jx = this.alive().find(q => q !== p && q.skills && q.skills.includes('巨象') && !this.isSilenced(q, '巨象'));
+        if (jx && card && !card.virtual) {
+          jx.hand.push(card);
+          this.log(`【巨象】：${this.nameOf(jx)} 獲得【南蠻入侵】`, 'skill');
+          return;
+        }
+      }
       this.toDiscard([card]);
     }
 
@@ -1341,6 +1379,7 @@
     /* 【殺】的最大目標數 */
     shaTargets(p, card) {
       let n = 1;
+      if (p.turnFlags && p.turnFlags.shaExtraTarget) n += p.turnFlags.shaExtraTarget;
       if (p.equips.weapon && p.equips.weapon.name === '方天畫戟' && p.hand.length === 1) n = 2;
       if (p.modShaTargets) n = p.modShaTargets(n);
       return n;
