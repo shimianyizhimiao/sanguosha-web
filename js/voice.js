@@ -28,6 +28,8 @@
     loadIndex() {
       if (this.indexTried) return;
       this.indexTried = true;
+      // 公開版（GitHub Pages）沒有語音檔，直接當作沒有索引，避免一個 404 探測請求
+      if (typeof location === 'object' && /(^|\.)github\.io$/.test(location.hostname || '')) { this.index = {}; return; }
       if (typeof fetch !== 'function') return;
       fetch('assets/voice/index.json').then(r => r.ok ? r.json() : null)
         .then(j => { this.index = j || {}; })
