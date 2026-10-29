@@ -145,7 +145,10 @@
       img.src = portraitURL(g.name);
       const hr = card.querySelector('.hprow');
       for (let i = 0; i < g.hp; i++) hr.appendChild(magatama(true));
-      card.onclick = () => chooseGeneral(g);
+      const more = el('div', 'gmore', '技能詳情');
+      more.onclick = (ev) => { ev.stopPropagation(); showGenSheet([g], `${g.hp} 體力`); };
+      card.appendChild(more);
+      card.onclick = (ev) => { if (ev.target === more) return; chooseGeneral(g); };
       box.appendChild(card);
     }
   }
@@ -456,13 +459,18 @@
 
   /* 技能詳情：點自己的武將卡才開，對手的卡不給點 */
   function showSkillSheet(p) {
+    showGenSheet(p.generals, `${p.hp}/${p.maxHp}`);
+  }
+
+  /* generals: 武將物件陣列；hpText: 右上顯示的體力文字 */
+  function showGenSheet(generals, hpText) {
     const sheet = document.getElementById('sheet');
     const body = document.getElementById('sheetBody');
     const title = document.getElementById('sheetTitle');
     if (!sheet || !body) return;
-    title.textContent = p.generals.map(g => g.name).join(' & ') + `（${p.hp}/${p.maxHp}）`;
+    title.textContent = generals.map(g => g.name).join(' & ') + (hpText ? `（${hpText}）` : '');
     body.innerHTML = '';
-    p.generals.forEach(g => {
+    generals.forEach(g => {
       const head = el('div', 'sheet-gen');
       head.textContent = `${g.name} · ${KINGDOM_TXT[g.kingdom] || g.kingdom} · ${g.hp} 體力`;
       body.appendChild(head);

@@ -419,3 +419,15 @@ button{font-family:inherit;cursor:pointer}
   padding:1px 6px;border-radius:8px;background:rgba(217,180,106,.9);color:#1a1409;
   font-weight:800;cursor:pointer}
 .seat.clickable .frame{cursor:pointer}
+
+/* ===== 選將卡底部的「技能詳情」===== */
+.gcard .gmore{margin-top:8px;text-align:center;font-size:11.5px;font-weight:700;
+  color:#1a1409;background:linear-gradient(180deg,#e7c887,#c99f52);
+  border-radius:8px;padding:5px 0;letter-spacing:.08em;cursor:pointer;
+  box-shadow:0 3px 10px rgba(0,0,0,.4)}
+.gcard .gmore:hover{filter:brightness(1.08)}
+
+/* 選將卡：詳情鈕一律貼齊底部 */
+.gcard{display:flex;flex-direction:column}
+.gcard .skills{flex:1 1 auto}
+.gcard .gmore{margin-top:auto}

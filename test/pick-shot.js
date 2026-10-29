@@ -6,7 +6,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     ['--headless=new', '--remote-debugging-port=' + PORT, '--user-data-dir=/tmp/sgspick2',
       '--no-first-run', '--window-size=1440,900', 'about:blank'], { stdio: 'ignore' });
   for (let i = 0; i < 40; i++) { try { await fetch(`http://127.0.0.1:${PORT}/json/version`); break; } catch (e) { await sleep(200); } }
-  const t = await (await fetch(`http://127.0.0.1:${PORT}/json/new?${encodeURIComponent('http://127.0.0.1:8124/index.html')}`, { method: 'PUT' })).json();
+  const t = await (await fetch(`http://127.0.0.1:${PORT}/json/new?${encodeURIComponent('http://127.0.0.1:8125/index.html')}`, { method: 'PUT' })).json();
   const ws = new WebSocket(t.webSocketDebuggerUrl);
   await new Promise(r => ws.addEventListener('open', r, { once: true }));
   let id = 0; const wait = new Map();
