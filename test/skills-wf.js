@@ -878,6 +878,123 @@ function mk(a, b) {
     check(t.alive, '相濡：角色存活');
   }
 
+
+  /* 60. 悲歌：受【殺】傷害後判定 ♦ → 目標摸三張 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['悲歌'];
+    p.hand.push(...CARDS.buildDeck(['std']).slice(0, 2));
+    const deck = CARDS.buildDeck(['std']);
+    const diamond = deck.find(c => c.suit === '♦' && c.name !== '殺');
+    const di = g.deck.indexOf(diamond);
+    if (di >= 0) g.deck.splice(di, 1);
+    g.deck.push(diamond);            // 牌堆是 pop() 抽，push 到最後＝下一張
+    g.askSkill = async () => true;
+    g.askCard = async (who, opt) => (opt.pool || [])[0] || null;
+    const th = t.hand.length;
+    const sha = deck.find(c => c.name === '殺');
+    await g.damage(g.players[2], t, 1, 'normal', sha);
+    check(t.hand.length >= th + 3, `悲歌：♦ 判定令其摸三張（${th} → ${t.hand.length}）`);
+  }
+
+  /* 61. 斷腸：死亡時兇手失去所有技能 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['斷腸'];
+    t.skills = ['狂骨', '破虜'];
+    await g.trigger('onDeath', { player: p, source: t });
+    check(t.skills.length === 0, `斷腸：兇手失去所有技能（剩 ${t.skills.length} 個）`);
+  }
+
+  /* 62. 蠻裔：【南蠻入侵】無效 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0];
+    p.skills = ['蠻裔'];
+    check(g.canBeTargeted(g.players[1], p, '南蠻入侵') === false, '蠻裔：【南蠻入侵】對自己無效');
+  }
+
+  /* 63. 儒宗：本回合只指定同一名角色 → 摸牌至與其相同 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['儒宗'];
+    p.turnFlags = {};
+    const deck = CARDS.buildDeck(['std']);
+    await g.trigger('shaTargeted', { source: p, target: t, card: deck.find(c => c.name === '殺') });
+    t.hand.length = 0; t.hand.push(...deck.slice(0, 4));
+    p.hand.length = 0; p.hand.push(deck[20]);
+    g.askSkill = async () => true;
+    await g.trigger('turnEnd', { player: p });
+    check(p.hand.length === 4, `儒宗：摸牌至 4 張（實際 ${p.hand.length}）`);
+  }
+
+  /* 64. 貞良：棄與「任」同色的 X 張牌造成 1 點傷害 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['貞良'];
+    const deck = CARDS.buildDeck(['std']);
+    const reds = deck.filter(c => c.suit === '♥').slice(0, 3);
+    p.ren = reds[0];
+    p.hand.length = 0; p.hand.push(reds[1], reds[2]);
+    p.maxHp = 4; p.hp = 4; t.maxHp = 4; t.hp = 3;     // 差 1 → X=1
+    p.turnFlags = {};
+    g.askTargets = async () => [t];
+    g.askCards = async (who, opt) => (opt.pool || []).slice(0, opt.min || 1);
+    const hp0 = t.hp;
+    await root.SGS_SKILLS['貞良'].active(g, p);
+    check(t.hp === hp0 - 1, `貞良：造成 1 點傷害（${hp0} → ${t.hp}）`);
+    check(p.hand.length === 1, `貞良：棄了 1 張同色牌（剩 ${p.hand.length}）`);
+  }
+
+  /* 65. 酣戰：拼點後獲得點數最大的【殺】 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0];
+    p.skills = ['酣戰'];
+    const deck = CARDS.buildDeck(['std']);
+    const sha = deck.find(c => c.name === '殺');
+    const other = deck.find(c => c.name === '閃');
+    g.discardPile.push(sha, other);
+    g.askSkill = async () => true;
+    // 確保牌在棄牌堆且不在任何人手上
+    for (const q of g.players) { const i = q.hand.indexOf(sha); if (i >= 0) q.hand.splice(i, 1); const j = q.hand.indexOf(other); if (j >= 0) q.hand.splice(j, 1); }
+    await g.trigger('pindianEnd', { p, q: g.players[1], cp: sha, cq: other, win: true });
+    check(p.hand.includes(sha), '酣戰：獲得拼點牌中的【殺】');
+  }
+
+  /* 66. 拒戰 ①：成為【殺】目標 → 各摸一張、來源不能再用牌指你 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['拒戰'];
+    p.turnFlags = {}; t.turnFlags = {};
+    g.askSkill = async () => true;
+    const ph = p.hand.length, th = t.hand.length;
+    await g.trigger('shaTargeted', { source: t, target: p, card: CARDS.buildDeck(['std']).find(c => c.name === '殺') });
+    check(p.hand.length === ph + 1 && t.hand.length === th + 1, '拒戰：雙方各摸一張');
+    check(g.canBeTargeted(t, p, '殺') === false, '拒戰：來源本回合不能再對你使用牌');
+  }
+
+  /* 67. 罪論：結束階段保留符合條件的牌 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0];
+    p.skills = ['罪論'];
+    p.turnFlags = { '造成傷害': true };       // 條件①成立；②不成立（棄過牌）
+    p.turnFlags['棄置過牌'] = true;
+    for (const q of g.players) q.hand.length = 5;   // 手牌不是最少 → ③不成立
+    p.hand.length = 6;
+    g.askSkill = async () => true;
+    const before = g.deck.length, ph = p.hand.length;
+    await g.trigger('turnEnd', { player: p });
+    check(p.hand.length === ph + 1, `罪論：保留 1 張（${ph} → ${p.hand.length}）`);
+    check(g.deck.length === before - 1, `罪論：其餘 2 張放回牌堆底（牌堆 ${before} → ${g.deck.length}）`);
+  }
+
   console.log(fails === 0 ? '\n全部通過' : `\n${fails} 項失敗`);
   process.exit(fails ? 1 : 0);
 })();

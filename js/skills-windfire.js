@@ -1519,6 +1519,238 @@
   for (const n of DONE8) if (SK[n]) { delete SK[n].todo; SK[n].impl = true; }
   root.SGS_SKILLS_DONE = (root.SGS_SKILLS_DONE || []).concat(DONE8);
 
+
+  /* ═══════════ 第九批 ═══════════ */
+
+  /* ── 簡繁同名技能：直接沿用實作 ─────────────────────────── */
+  if (SK['奇謀']) SK['奇谋'] = SK['奇謀'];
+  if (SK['紅顏']) SK['紅顔'] = SK['紅顏'];
+
+  /* ── 悲歌：受【殺】傷害後棄一張牌判定，按花色處置 ──────────── */
+  SK['悲歌'] = {
+    type: 'trigger',
+    desc: '當一名角色受到【殺】造成的傷害後，你可以棄置一張牌，然後令其進行判定，若結果為：♥，其回復X點體力（X為其本次受到傷害值）；♦，其摸三張牌；♣，傷害來源棄置兩張牌；♠，傷害來源翻面。',
+    events: {
+      async damaged(g, ctx, p) {
+        if (!ctx.card || !isSha(ctx.card)) return;
+        const tgt = ctx.target;
+        if (!tgt || !tgt.alive) return;
+        const pool = [...p.hand, ...equipSlots.map(sl => p.equips[sl]).filter(Boolean)];
+        if (!pool.length) return;
+        const yes = await g.askSkill(p, '悲歌', `【悲歌】棄一張牌，令 ${g.nameOf(tgt)} 判定？`);
+        if (!yes) return;
+        const c = await g.askCard(p, { prompt: '【悲歌】棄置一張牌', pool });
+        if (!c) return;
+        if (c.slot && p.equips[c.slot] === c) { p.equips[c.slot] = null; g.onEquipChange && g.onEquipChange(p); g.toDiscard([c]); }
+        else g.consumeCards(p, [c], '悲歌');
+        const jc = await g.judge(tgt, '悲歌');
+        if (!jc) return;
+        const suit = g.suitOf(tgt, jc);
+        if (suit === '♥') {
+          await g.heal(tgt, ctx.amount || 1, '悲歌');
+        } else if (suit === '♦') {
+          g.drawCards(tgt, 3);
+        } else if (suit === '♣') {
+          if (ctx.source && ctx.source.alive) {
+            const src = ctx.source;
+            const cs = src.hand.slice(0, 2);
+            if (cs.length) g.consumeCards(src, cs, '悲歌');
+          }
+        } else if (suit === '♠') {
+          if (ctx.source && ctx.source.alive) { ctx.source.flipped = !ctx.source.flipped; g.log(`${g.nameOf(ctx.source)} 翻面`, 'skill'); }
+        }
+        g.log(`【悲歌】${g.nameOf(p)} 令 ${g.nameOf(tgt)} 判定：${C.cardText(jc)}`, 'skill');
+      },
+    },
+  };
+
+  /* ── 斷腸：死亡時，殺死你的角色失去所有武將技能 ────────────── */
+  SK['斷腸'] = {
+    type: 'locked',
+    desc: '鎖定技，當你死亡時，殺死你的角色失去所有武將技能。',
+    events: {
+      async onDeath(g, ctx, p) {
+        if (ctx.player !== p) return;
+        const src = ctx.source;
+        if (!src) return;
+        src.skills = [];
+        g.log(`【斷腸】${g.nameOf(src)} 失去所有武將技能`, 'skill');
+        g.update();
+      },
+    },
+  };
+
+  /* ── 蠻裔：【南蠻入侵】對自己無效；登場時視為使用一張 ───────── */
+  SK['蠻裔'] = {
+    type: 'locked',
+    desc: '你登場時，你可視為對對手使用一張【南蠻入侵】；【南蠻入侵】對你無效。',
+    cannotBeTargeted(g, p, src, cardName) { return cardName === '南蠻入侵'; },
+    events: {
+      async turnStart(g, ctx, p) {
+        if (ctx.player !== p || p.usedManyi) return;
+        if (!(p.turnFlags && p.turnFlags.turnNo === 1)) {
+          // 用「第一次自己的回合」近似「登場」
+          if (p.turnCount > 1) { p.usedManyi = true; return; }
+        }
+        p.usedManyi = true;
+        const foes = g.alive().filter(q => q !== p);
+        if (!foes.length) return;
+        const card = { id: 'v蠻裔' + Date.now(), name: '南蠻入侵', type: 'trick', virtual: true, subcards: [], suit: '♠', rank: 7, skill: '蠻裔' };
+        g.log(`${g.nameOf(p)} 發動【蠻裔】，視為使用【南蠻入侵】`, 'skill');
+        await g.useTrick(p, card, foes);
+      },
+    },
+  };
+
+  /* ── 儒宗：本回合只指定過同一名角色，可把手牌摸到與其相同 ───── */
+  SK['儒宗'] = {
+    type: 'trigger',
+    desc: '回合結束時，若你本回合使用牌指定過的目標角色均為同一名，你可以將手牌數摸至與其相同（至多摸五張），若該目標為你，你可以改為令任意名其他角色將手牌數摸至與你相同。',
+    events: {
+      // 記錄本回合指定過的目標
+      cardUsed(g, ctx, p) { if (ctx.player === p) trackTarget(p, ctx.targets); },
+      shaTargeted(g, ctx, p) { if (ctx.source === p) trackTarget(p, [ctx.target]); },
+      async turnEnd(g, ctx, p) {
+        if (ctx.player !== p) return;
+        const tset = p.turnFlags && p.turnFlags['儒宗目標'];
+        if (!tset || tset.size !== 1) return;
+        const id = [...tset][0];
+        const tgt = g.players.find(q => q.id === id);
+        if (!tgt) return;
+        const want = Math.min(5, tgt.hand.length);
+        if (p.hand.length >= want) return;
+        const yes = await g.askSkill(p, '儒宗', `【儒宗】摸牌至 ${want} 張？`);
+        if (!yes) return;
+        g.drawCards(p, want - p.hand.length);
+        g.log(`【儒宗】${g.nameOf(p)} 摸牌至 ${want} 張`, 'skill');
+      },
+    },
+  };
+  function trackTarget(p, targets) {
+    if (!p.turnFlags) return;
+    p.turnFlags['儒宗目標'] = p.turnFlags['儒宗目標'] || new Set();
+    for (const t of (targets || [])) if (t) p.turnFlags['儒宗目標'].add(t.id);
+  }
+
+  /* ── 貞良：棄與「任」同色的牌造成傷害 ─────────────────────── */
+  SK['貞良'] = {
+    type: 'active',
+    desc: '轉換技，①出牌階段限一次，你可以棄置X張與「任」顏色相同的牌，然後對攻擊範圍內的一名角色造成1點傷害（X為你與其體力值之差且至少為1）。②你的回合外，當你使用或打出的牌進入棄牌堆時，若此牌與「任」類別相同，你摸一張牌。',
+    canUse(g, p) {
+      if (p.turnFlags && p.turnFlags['貞良']) return false;
+      if (!p.ren) return false;
+      return g.alive().some(q => q !== p && g.inAttackRange(p, q));
+    },
+    async active(g, p) {
+      if (p.turnFlags['貞良'] || !p.ren) return;
+      const t = await g.askTargets(p, { prompt: '【貞良】選擇攻擊範圍內的一名角色', min: 1, max: 1, filter: q => q.alive && q !== p && g.inAttackRange(p, q) });
+      if (!t || !t.length) return;
+      const tgt = t[0];
+      const x = Math.max(1, Math.abs(p.hp - tgt.hp));
+      const pool = p.hand.filter(c => c.color === p.ren.color);
+      if (pool.length < x) { g.log(`【貞良】與「任」同色的牌不足 ${x} 張`, 'skill'); return; }
+      const cs = await g.askCards(p, { min: x, max: x, pool, prompt: `【貞良】棄置 ${x} 張與「任」同色的牌` });
+      if (!cs || cs.length < x) return;
+      p.turnFlags['貞良'] = true;
+      g.consumeCards(p, cs, '貞良');
+      g.log(`【貞良】${g.nameOf(p)} 棄 ${x} 張牌，對 ${g.nameOf(tgt)} 造成 1 點傷害`, 'skill');
+      await g.damage(p, tgt, 1, 'normal', null);
+      g.update();
+    },
+    events: {
+      // ②回合外使用／打出的牌與「任」同類別 → 摸一張
+      cardUsed(g, ctx, p) {
+        if (ctx.player !== p || !p.ren || !g.turnPlayer || g.turnPlayer === p) return;
+        if (ctx.card && ctx.card.type === p.ren.type) g.drawCards(p, 1);
+      },
+    },
+  };
+
+  /* ── 酣戰：拼點時對手隨機出牌；拼點後獲得點數最大的【殺】────── */
+  SK['酣戰'] = {
+    type: 'trigger',
+    desc: '你與其他角色拼點，或其他角色與你拼點時，你可令其使用隨機的手牌拼點。當你拼點後，你可獲得拼點牌中點數最大的【殺】。',
+    events: {
+      async pindianEnd(g, ctx, p) {
+        if (ctx.p !== p && ctx.q !== p) return;
+        const shas = [ctx.cp, ctx.cq].filter(c => c && isSha(c));
+        if (!shas.length) return;
+        const best = shas.reduce((a, b) => (rankOf(b) > rankOf(a) ? b : a));
+        const di = g.discardPile.indexOf(best);
+        if (di < 0) return;
+        const yes = await g.askSkill(p, '酣戰', `【酣戰】獲得 ${C.cardText(best)}？`);
+        if (!yes) return;
+        g.discardPile.splice(di, 1);
+        p.hand.push(best);
+        g.log(`【酣戰】${g.nameOf(p)} 獲得拼點牌 ${C.cardText(best)}`, 'skill');
+      },
+    },
+  };
+  const rankOf = c => (c.rank === 1 ? 14 : (typeof c.rank === 'number' ? c.rank : parseInt(c.rank, 10) || 0));
+
+  /* ── 拒戰：轉換技，攻守兩用 ──────────────────────────────── */
+  SK['拒戰'] = {
+    type: 'trigger',
+    desc: '轉換技，①當你成為其他角色【殺】的目標後，你可以與其各摸一張牌，然後其本回合不能再對你使用牌。②當你的【殺】指定目標後，你可以獲得目標角色一張牌，然後你本回合不能再對其使用牌。',
+    events: {
+      async shaTargeted(g, ctx, p) {
+        if (ctx.target === p && ctx.source !== p) {
+          if (p.turnFlags && p.turnFlags['拒戰甲']) return;
+          const yes = await g.askSkill(p, '拒戰', `【拒戰】與 ${g.nameOf(ctx.source)} 各摸一張牌？`);
+          if (!yes) return;
+          p.turnFlags['拒戰甲'] = true;
+          g.drawCards(p, 1);
+          g.drawCards(ctx.source, 1);
+          ctx.source.turnFlags = ctx.source.turnFlags || {};
+          ctx.source.turnFlags['不能對' + p.id] = true;
+          g.log(`【拒戰】${g.nameOf(p)} 與 ${g.nameOf(ctx.source)} 各摸一張牌`, 'skill');
+        } else if (ctx.source === p && ctx.target) {
+          const t = ctx.target;
+          if (p.turnFlags && p.turnFlags['拒戰乙']) return;
+          const pool = [...t.hand, ...equipSlots.map(sl => t.equips[sl]).filter(Boolean)];
+          if (!pool.length) return;
+          const yes = await g.askSkill(p, '拒戰', `【拒戰】獲得 ${g.nameOf(t)} 一張牌？`);
+          if (!yes) return;
+          p.turnFlags['拒戰乙'] = true;
+          const c = pool[Math.floor(Math.random() * pool.length)];
+          if (c.slot && t.equips[c.slot] === c) { t.equips[c.slot] = null; g.onEquipChange && g.onEquipChange(t); }
+          else { const i = t.hand.indexOf(c); if (i >= 0) t.hand.splice(i, 1); }
+          p.hand.push(c);
+          p.turnFlags['不能對' + t.id] = true;
+          g.log(`【拒戰】${g.nameOf(p)} 獲得 ${g.nameOf(t)} 的 ${C.cardText(c)}`, 'skill');
+        }
+      },
+    },
+  };
+
+  /* ── 罪論：結束階段看牌堆頂三張，按條件保留 ────────────────── */
+  SK['罪論'] = {
+    type: 'trigger',
+    desc: '結束階段，你可以觀看牌堆頂三張牌，你每滿足以下一項便保留一張，然後以任意順序放回：1.你於此回合內造成過傷害；2.你於此回合內未棄置過牌；3.手牌數為全場最少。',
+    events: {
+      async turnEnd(g, ctx, p) {
+        if (ctx.player !== p) return;
+        if (g.deck.length < 3) return;
+        const yes = await g.askSkill(p, '罪論');
+        if (!yes) return;
+        const tf = p.turnFlags || {};
+        const conds = [!!tf['造成傷害'], !tf['棄置過牌'], p.hand.length === Math.min(...g.alive().map(q => q.hand.length))];
+        let keep = conds.filter(Boolean).length;
+        const top = g.deck.splice(0, 3);
+        const got = top.slice(0, keep);
+        const back = top.slice(keep);
+        p.hand.push(...got);
+        g.deck.push(...back);                 // 其餘放回牌堆底
+        g.log(`【罪論】${g.nameOf(p)} 保留 ${got.length} 張（${got.map(c => C.cardText(c)).join('、') || '無'}），其餘放回牌堆底`, 'skill');
+        g.update();
+      },
+    },
+  };
+
+  const DONE9 = ['奇谋', '紅顔', '悲歌', '斷腸', '蠻裔', '儒宗', '貞良', '酣戰', '拒戰', '罪論'];
+  for (const n of DONE9) if (SK[n]) { delete SK[n].todo; SK[n].impl = true; }
+  root.SGS_SKILLS_DONE = (root.SGS_SKILLS_DONE || []).concat(DONE9);
+
   const DONE = ['血裔', '據守', '狂骨', '破虜', '烈弓', '直諫', '固政', '英魂'];
   for (const n of DONE) if (SK[n]) { delete SK[n].todo; SK[n].impl = true; }
   root.SGS_SKILLS_DONE = (root.SGS_SKILLS_DONE || []).concat(DONE);

@@ -279,6 +279,7 @@
 
     /* 一名角色能否成為使用者的目標（含空城等限制） */
     canBeTargeted(source, target, cardName, card) {
+      if (source && source.turnFlags && source.turnFlags['不能對' + target.id]) return false;   // 拒戰：本回合不能再對其使用牌
       if (!target || !target.alive) return false;
       for (const skName of target.skills) {
         const sk = this.SK[skName];
@@ -655,8 +656,14 @@
       if (!p.hand.length || !q.hand.length) return null;
       const cp = await this.askCard(p, { prompt: `【${reason}】選擇一張手牌拼點`, pool: p.hand.slice() });
       if (!cp) return null;
-      const cq = await this.askCard(q, { prompt: `【${reason}】選擇一張手牌拼點`, pool: q.hand.slice() });
+      // 酣戰：與你拼點的角色隨機出手牌
+      const randomQ = (p.skills && p.skills.includes('酣戰') && !this.isSilenced(p, '酣戰')) ||
+                      (q.skills && q.skills.includes('酣戰') && !this.isSilenced(q, '酣戰'));
+      const cq = randomQ
+        ? q.hand[Math.floor(Math.random() * q.hand.length)]
+        : await this.askCard(q, { prompt: `【${reason}】選擇一張手牌拼點`, pool: q.hand.slice() });
       if (!cq) return null;
+      if (randomQ) this.log(`【酣戰】${this.nameOf(q)} 隨機出了 ${C.cardText(cq)} 拼點`, 'skill');
       const rankVal = c => (c.rank === 1 ? 14 : (typeof c.rank === 'number' ? c.rank : parseInt(c.rank, 10) || 0));
       if (cp.rank === 1) { /* A 最大 */ }
       const rp = rankVal(cp), rq = rankVal(cq);
@@ -665,6 +672,7 @@
       if (iq >= 0) q.hand.splice(iq, 1);
       this.toDiscard([cp, cq]);
       this.log(`【${reason}】拼點：${this.nameOf(p)} ${C.cardText(cp)} vs ${this.nameOf(q)} ${C.cardText(cq)} → ${rp > rq ? this.nameOf(p) + ' 贏' : rp < rq ? this.nameOf(q) + ' 贏' : '平手（沒贏）'}`, 'skill');
+      await this.trigger('pindianEnd', { p, q, cp, cq, win: rp > rq });
       return { win: rp > rq, tie: rp === rq, cp, cq, rp, rq };
     }
 
