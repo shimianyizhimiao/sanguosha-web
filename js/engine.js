@@ -80,7 +80,11 @@
     putOnDeckTop(cards) { this.deck.push(...cards); }
 
     drawCards(p, n, reason) {
-      const cards = this.drawFromDeck(n);
+      let cards;
+      if (p.skills && p.skills.includes('寸目') && !this.isSilenced(p, '寸目')) {
+        cards = [];
+        for (let i = 0; i < n && this.deck.length; i++) cards.push(this.deck.shift());   // 寸目：從牌堆底摸
+      } else cards = this.drawFromDeck(n);
       p.hand.push(...cards);
       if (reason) this.log(`${this.nameOf(p)} 摸 ${cards.length} 張牌（${reason}）`, 'draw');
       else this.log(`${this.nameOf(p)} 摸了 ${cards.length} 張牌`, 'draw');
@@ -280,6 +284,8 @@
     /* 一名角色能否成為使用者的目標（含空城等限制） */
     canBeTargeted(source, target, cardName, card) {
       if (source && source.turnFlags && source.turnFlags['不能對' + target.id]) return false;   // 拒戰：本回合不能再對其使用牌
+      if (source && source.skills && source.skills.includes('掣政') && !this.isSilenced(source, '掣政')
+          && !this.inAttackRange(target, source)) return false;                                // 掣政
       if (!target || !target.alive) return false;
       for (const skName of target.skills) {
         const sk = this.SK[skName];
@@ -389,6 +395,12 @@
       if (p.hp <= 0 && p.alive) await this.dying(p, null);
     }
 
+    gainMaxHp(p, n) {
+      p.maxHp = (p.maxHp || 0) + n;
+      this.log(`${this.nameOf(p)} 體力上限 +${n}（${p.maxHp}）`, 'info');
+      this.update();
+    }
+
     async loseHp(p, n, reason) {
       p.hp -= n;
       this.log(`${this.nameOf(p)} 失去 ${n} 點體力（${Math.max(0, p.hp)}/${p.maxHp}）${reason ? ' · ' + reason : ''}`, 'damage');
@@ -401,6 +413,18 @@
       await this.trigger('beforeDamaged', ctx);
       if (ctx.canceled || !target.alive) return 0;
       let amt = ctx.amount;
+      // 技能傷害覆寫／加成（蠻刃、威嚴…）
+      for (const q of this.alive()) {
+        for (const sk of q.skills || []) {
+          const def = (root.SGS_SKILLS || {})[sk];
+          if (!def || this.isSilenced(q, sk)) continue;
+          if (def.damageOverride) {
+            const v = def.damageOverride(this, { source, target, card, amount: amt, nature }, q);
+            if (v > 0) amt = v;
+          }
+          if (def.damageBonus) amt += def.damageBonus(this, { source, target, card, amount: amt, nature }, q);
+        }
+      }
       // 藤甲：火焰傷害 +1
       if (nature === 'fire' && this.armorOf(target) && this.armorOf(target).name === '藤甲') amt += 1;
       // 滅殺（鎖定技）：對體力值為 1 的角色傷害 +1
@@ -452,6 +476,9 @@
 
     /* 瀕死求桃 */
     async dying(p, source) {
+      if (p.hp > 0 || !p.alive) return;
+      await this.trigger('dying', { player: p, source });
+      if (p.hp > 0) return;
       this.log(`${this.nameOf(p)} 進入瀕死狀態！`, 'warn');
       let guard = 0;
       while (p.hp <= 0 && p.alive && guard++ < 30) {
@@ -549,6 +576,8 @@
       if (p.buqu && p.buqu.length) this.toDiscard(p.buqu.splice(0));       // 不屈牌：死亡時一併棄置
       if (p.ren) { this.toDiscard([p.ren]); p.ren = null; }                // 明任的「任」
       if (p.qianhuan && p.qianhuan.length) this.toDiscard(p.qianhuan.splice(0));   // 千幻牌
+      if (p.kongsheng && p.kongsheng.length) this.toDiscard(p.kongsheng.splice(0)); // 箜聲牌
+      if (p.rong && p.rong.length) this.toDiscard(p.rong.splice(0));                 // 榮牌
       this.log(`${this.nameOf(p)}（${p.identityName}）陣亡`, 'death');
       this.emit('death', { player: p, source });
       this.update();
@@ -733,6 +762,7 @@
       if (p.flipped) {
         p.flipped = false;
         this.log(`${this.nameOf(p)} 翻回正面，跳過本回合`, 'info');
+        await this.trigger('flip', { player: p });
         this.update();
         return;
       }
@@ -868,6 +898,7 @@
           if (sk && sk.limitFor && !this.isSilenced(q, skName)) lim += sk.limitFor(this, q, p) || 0;
         }
       }
+      if (p.turnFlags && p.turnFlags.limitToMax) lim = p.maxHp;      // 放權
       if (p.turnFlags && p.turnFlags.handLimitX) lim += p.turnFlags.handLimitX;
       if (p.modHandLimit) lim = p.modHandLimit(lim);
       return lim;
@@ -932,6 +963,7 @@
       if (p.silentHand != null && p.silentHand === p.turnCount) return out;   // 雄亂：不能使用手牌
       const add = (card, skill, asName) => out.push({ card, skill: skill || null, asName: asName || null });
 
+      if (p.turnFlags && p.turnFlags.noMoreCards) return out;          // 往烈
       const noSha = p.turnFlags && p.turnFlags.noSha;
       for (const c of p.hand) {
         if (c.name === '閃' || c.name === '無懈可擊') continue;
@@ -1087,6 +1119,7 @@
 
     async useTrick(p, card, name, targets) {
       // 決定目標
+      if (Array.isArray(name) && targets === undefined) { targets = name; name = card && card.name; }   // 容錯：舊呼叫方式
       let tgts = [];
       const cands = this.others(p);
       if (name === '無中生有') tgts = [p];
@@ -1273,6 +1306,7 @@
         }
         case '借刀殺人': {
           const [a, b] = tgts;
+          if (!a || !b || !a.alive || !b.alive) break;
           const r = await this.askForCard(a, '殺', { prompt: `【借刀殺人】：請對 ${this.nameOf(b)} 打出一張【殺】`, cancelable: true });
           if (r) {
             this.consumeCards(a, r.cards, '殺');

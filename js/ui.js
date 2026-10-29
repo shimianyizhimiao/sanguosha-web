@@ -507,6 +507,7 @@
         const row = el('div', 'sheet-skill');
         const nmEl = el('div', 'sk-name', `【${name}】`);
         if (sk.todo) nmEl.appendChild(el('span', 'sk-todo', '未實作'));
+        else if (sk.noop) nmEl.appendChild(el('span', 'sk-todo', '國戰專用'));
         row.appendChild(nmEl);
         row.appendChild(el('div', 'sk-desc', sk.desc || '（尚無說明）'));
         body.appendChild(row);

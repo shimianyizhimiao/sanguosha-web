@@ -44,6 +44,9 @@
       const myHate = (p.hostility && p.hostility[q.id]) || 0;      // 我對他的敵意（他打過我）
       const hisHate = (q.hostility && q.hostility[p.id]) || 0;     // 他對我的敵意
       score += myHate * 1.2 + hisHate * 0.8;
+      // 後期提速：拖太久時 AI 主動收縮，避免全部縮著打的無限拉鋸
+      if (g.turnNo > 150) score += 1.2;
+      if (g.turnNo > 260) score += 1.2;
 
       const lord = g.players.find(x => x.identity === 'lord');
       const lordHate = lord ? ((q.hostility && q.hostility[lord.id]) || 0) : 0;

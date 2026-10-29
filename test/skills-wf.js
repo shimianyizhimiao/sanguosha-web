@@ -8,6 +8,12 @@ let fails = 0;
 const CARDNAME = c => c ? (c.suit + c.rank + c.name) : 'null';
 const check = (cond, msg) => { if (!cond) fails++; console.log((cond ? '✅' : '❌') + ' ' + msg); };
 
+function mk5(a) {
+  const g = SETUP.makeGame({ mode: 'id5', packs: ['std','ex'], generalPacks: ['std','windfire'], forcedGenerals: [[GEN[a]]] });
+  g.players.forEach(p => { p.turnFlags = p.turnFlags || {}; });
+  return g;
+}
+
 function mk(a, b) {
   const g = SETUP.makeGame({
     mode: 'duel', packs: ['std'], generalPacks: ['std', 'windfire'],
@@ -993,6 +999,152 @@ function mk(a, b) {
     await g.trigger('turnEnd', { player: p });
     check(p.hand.length === ph + 1, `罪論：保留 1 張（${ph} → ${p.hand.length}）`);
     check(g.deck.length === before - 1, `罪論：其餘 2 張放回牌堆底（牌堆 ${before} → ${g.deck.length}）`);
+  }
+
+
+  /* 68. 享樂：來源不棄基本牌 → 【殺】無效 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    t.skills = ['享樂'];
+    p.hand.push(CARDS.buildDeck(['std']).find(c => c.type === 'basic'));
+    g.askCard = async () => null;                 // 來源選擇不棄
+    const ctx = { source: p, target: t, card: CARDS.buildDeck(['std']).find(c => c.name === '殺'), noEffect: false };
+    await g.trigger('shaTargeted', ctx);
+    check(ctx.noEffect === true, '享樂：來源沒棄基本牌 → 此【殺】對其無效');
+  }
+
+  /* 69. 放權：跳過出牌階段，手牌上限＝體力上限 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0];
+    p.skills = ['放權'];
+    p.turnFlags = {};
+    p.maxHp = 4; p.hp = 2;
+    await root.SGS_SKILLS['放權'].active(g, p);
+    check(p.turnFlags.skipPlay === true, '放權：跳過出牌階段');
+    check(g.handLimit(p) === 4, `放權：手牌上限＝體力上限（${g.handLimit(p)}）`);
+  }
+
+  /* 70. 寸目：從牌堆底摸牌 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0];
+    p.skills = ['寸目'];
+    const bottom = g.deck[0];                      // 牌堆最底（shift 抽）
+    const got = g.drawCards(p, 1);
+    check(got.length === 1 && got[0].id === bottom.id, `寸目：摸到牌堆底那張（${got[0] && got[0].name}）`);
+  }
+
+  /* 71. 將烈：【殺】指定目標後令其棄所有紅或黑手牌 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['將烈'];
+    const deck = CARDS.buildDeck(['std']);
+    const reds = deck.filter(c => c.color === 'red').slice(0, 2);
+    t.hand.length = 0; t.hand.push(...reds);
+    g.askSkill = async () => true;
+    g.ask = async () => 0;                         // 選第一個選項（棄紅）
+    await g.trigger('shaTargeted', { source: p, target: t, card: deck.find(c => c.name === '殺') });
+    check(t.hand.length === 0, `將烈：目標棄光紅牌（剩 ${t.hand.length}）`);
+  }
+
+  /* 72. 懷橘：有「橘」時防止傷害並移去標記 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0];
+    p.skills = ['懷橘'];
+    p.marks = { 橘: 2 };
+    p.maxHp = 4; p.hp = 4;
+    await g.damage(g.players[1], p, 1, 'normal', null);
+    check(p.hp === 4, `懷橘：傷害被防止（體力 ${p.hp}）`);
+    check(p.marks['橘'] === 1, `懷橘：移去一個「橘」（剩 ${p.marks['橘']}）`);
+  }
+
+  /* 73. 締盟：交換兩名角色的手牌 */
+  {
+    const g = mk5('魏延');
+    const p = g.players[0], a = g.players[1], b = g.players[2];
+    p.skills = ['締盟'];
+    const deck = CARDS.buildDeck(['std']);
+    a.hand.length = 0; a.hand.push(...deck.slice(0, 2));
+    b.hand.length = 0; b.hand.push(...deck.slice(10, 14));
+    p.hand.push(...deck.slice(20, 22));
+    p.turnFlags = {};
+    g.askTargets = async () => [a, b];
+    g.askCards = async (who, opt) => (opt.pool || []).slice(0, opt.min || 0);
+    await root.SGS_SKILLS['締盟'].active(g, p);
+    check(a.hand.length === 4 && b.hand.length === 2, `締盟：手牌交換（${a.hand.length}／${b.hand.length}）`);
+  }
+
+  /* 74. 選鋒：用一張【影】當【殺】 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['選鋒'];
+    p.turnFlags = { ying: 1 };
+    t.hp = 3;
+    g.askTargets = async () => [t];
+    g.askForCard = async () => null;              // 不出閃
+    await root.SGS_SKILLS['選鋒'].active(g, p);
+    check(t.hp === 2, `選鋒：以【影】當【殺】命中（${t.hp}）`);
+    check(p.turnFlags.ying === 0, '選鋒：消耗一張【影】');
+  }
+
+  /* 75. 清側：移去一張「榮」，棄場上一張牌 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['清側'];
+    const deck = CARDS.buildDeck(['std']);
+    p.rong = [deck[0]];
+    t.hand.length = 0; t.hand.push(deck[1]);
+    g.askTargets = async () => [t];
+    await root.SGS_SKILLS['清側'].active(g, p);
+    check(p.rong.length === 0, '清側：「榮」被移去');
+    check(t.hand.length === 0, '清側：目標被棄一張牌');
+  }
+
+  /* 76. 蠱惑：假牌被質疑 → 作廢 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0];
+    p.skills = ['蠱惑'];
+    p.turnFlags = {};
+    const deck = CARDS.buildDeck(['std']);
+    const shan = deck.find(c => c.name === '閃');
+    p.hand.length = 0; p.hand.push(shan);
+    g.askCard = async (who, opt) => (opt.pool || [])[0] || null;
+    g.ask = async (who, req) => (req && req.kind === 'choice' ? 0 : null);   // 聲稱【殺】、其他人質疑
+    await root.SGS_SKILLS['蠱惑'].active(g, p);
+    check(!p.hand.includes(shan), '蠱惑：假牌作廢進棄牌堆');
+    check(g.discardPile.includes(shan), '蠱惑：牌確實在棄牌堆');
+  }
+
+  /* 77. 化身：開局獲得三張化身牌並獲得其中一個技能 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0];
+    p.skills = ['化身'];
+    p.huanshen = null;
+    await g.trigger('gameStart', {});
+    check((p.huanshen || []).length === 3, `化身：三張化身牌（${(p.huanshen || []).length}）`);
+    check(p.skills.length > 1, `化身：獲得技能（${p.skills.join('、')}）`);
+  }
+
+  /* 78. 兵威：交一張牌給距離內角色並回復 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['兵威'];
+    p.turnFlags = {};
+    p.hand.push(CARDS.buildDeck(['std'])[0]);
+    t.maxHp = 4; t.hp = 2;
+    g.askTargets = async () => [t];
+    g.askCard = async (who, opt) => (opt.pool || [])[0] || null;
+    await root.SGS_SKILLS['兵威'].active(g, p);
+    check(t.hp === 3, `兵威：隊友回復 1 點（${t.hp}）`);
   }
 
   console.log(fails === 0 ? '\n全部通過' : `\n${fails} 項失敗`);
