@@ -238,6 +238,24 @@
     box.appendChild(line);
     while (box.children.length > 400) box.removeChild(box.firstChild);
     box.scrollTop = box.scrollHeight;
+    if (entry.kind === 'skill') speakFromLog(entry.msg);
+  }
+
+  /* 技能日誌 → 角色語音：日誌形如「劉備 發動【仁德】…」或「…的【剛烈】」
+     引擎只有少數地方發 skill 事件，靠日誌補齊，讓技能語音真的會響 */
+  function speakFromLog(msg) {
+    if (!VOICE || !VOICE.playSkill || !game) return;
+    const m = /【([^】]+)】/.exec(msg || '');
+    if (!m) return;
+    const sk = m[1];
+    // 只認「日誌開頭就是某位武將名」的情況，避免張冠李戴播錯人的語音
+    const who = game.players.find(p => p.alive && p.generals.some(g => msg.startsWith(g.name + ' ')));
+    if (!who) return;
+    const g = who.generals.find(x => (x.skills || []).includes(sk)) || who.generals[0];
+    const all = who.generals.flatMap(x => x.skills || []);
+    const idx = all.indexOf(sk);
+    if (idx < 0 || idx > 5) return;      // 官方每隻最多 5 個技能語音檔
+    VOICE.playSkill(g.name, sk, all);
   }
 
   /* ================= 事件 → 特效 / 音效 ================= */
