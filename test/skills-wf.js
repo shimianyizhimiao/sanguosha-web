@@ -5,6 +5,7 @@ const { root } = require('./load');
 const SETUP = root.SGS_SETUP, GEN = root.SGS_GENERALS, CARDS = root.SGS_CARDS;
 
 let fails = 0;
+const CARDNAME = c => c ? (c.suit + c.rank + c.name) : 'null';
 const check = (cond, msg) => { if (!cond) fails++; console.log((cond ? '✅' : '❌') + ' ' + msg); };
 
 function mk(a, b) {
@@ -395,6 +396,124 @@ function mk(a, b) {
     const before = t.hand.length;
     await g.trigger('discardPhaseEnd', { player: g.players[0], count: 2, cards: [] });
     check(t.hand.length >= before + 1, `再起：目標摸牌（${before} → ${t.hand.length}）`);
+  }
+
+
+  /* 28. 神速 ①：跳過判定＋摸牌，視為出一張【殺】 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['神速'];
+    p.turnFlags = {};
+    g.askSkill = async () => true;
+    g.askTargets = async () => [t];
+    g.askForCard = async () => null;            // 目標不出【閃】
+    const hp0 = t.hp;
+    await g.trigger('phaseStart', { player: p, phase: 'judge' });
+    check(p.turnFlags.skipJudgeDraw === true, '神速①：已標記跳過判定＋摸牌階段');
+    check(t.hp === hp0 - 1, `神速①：視為使用【殺】命中（${hp0} → ${t.hp}）`);
+  }
+
+  /* 29. 天香：棄 ♥ 手牌轉移傷害，目標受傷並摸已損失體力的牌 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['天香'];
+    const deck = CARDS.buildDeck(['std']);
+    const hearts = deck.filter(c => c.suit === '♥').slice(0, 1);
+    p.hand.length = 0; p.hand.push(...hearts);
+    g.askSkill = async () => true;
+    g.askCard = async (who, opt) => (opt.pool || [])[0] || null;
+    g.askTargets = async () => [t];
+    t.maxHp = 4; t.hp = 3;
+    const hp0 = p.hp, th = t.hand.length, tt = t.hp;
+    await g.damage(g.players[1] || t, p, 2, 'normal', null);
+    check(p.hp === hp0, '天香：自己沒受傷（傷害被轉移）');
+    check(t.hp === tt - 1, `天香：目標受到 1 點傷害（${tt} → ${t.hp}）`);
+    check(t.hand.length === th + 2, `天香：目標摸已損失體力張數 2（${th} → ${t.hand.length}）`);
+  }
+
+  /* 30. 鬼道：用黑色牌改判 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['鬼道'];
+    const black = CARDS.buildDeck(['std']).find(c => c.color === 'black');
+    p.hand.push(black);
+    g.askSkill = async () => true;
+    g.askCard = async (who, opt) => (opt.pool || [])[0] || null;
+    const jc = await g.judge(t, '測試');
+    check(jc && jc.color === 'black' && jc !== undefined, `鬼道：判定牌被改為黑色牌 ${CARDNAME(jc)}`);
+  }
+
+  /* 31. 雷擊：閃避後判定為黑 → 2 點雷電傷害 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['雷擊'];
+    g.askSkill = async () => true;
+    g.askTargets = async () => [t];
+    // 讓牌堆頂為黑色牌
+    const deck = g.deck;
+    const blackIdx = deck.findIndex(c => c.color === 'black');
+    if (blackIdx >= 0) { const [c] = deck.splice(blackIdx, 1); deck.push(c); }
+    const hp0 = t.hp;
+    await g.trigger('shaDodged', { source: t, target: p, card: CARDS.buildDeck(['std'])[0] });
+    check(t.hp <= hp0 - 2, `雷擊：判定黑 → 2 點雷電傷害（${hp0} → ${t.hp}）`);
+  }
+
+  /* 32. 激昂：使用【殺】指定目標後摸一張 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['激昂'];
+    p.turnFlags = {};
+    g.askSkill = async () => true;
+    const before = p.hand.length;
+    await g.trigger('shaTargeted', { source: p, target: t, card: CARDS.buildDeck(['std']).find(c => c.name === '殺') });
+    check(p.hand.length === before + 1, `激昂：指定目標後摸一張（${before} → ${p.hand.length}）`);
+  }
+
+  /* 33. 魂姿：體力 1 覺醒，獲得英姿＋英魂 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0];
+    p.skills = ['魂姿'];
+    p.hp = 1; p.maxHp = 4;
+    await g.trigger('turnStart', { player: p });
+    check(p.maxHp === 3, `魂姿：體力上限 -1（4 → ${p.maxHp}）`);
+    check(p.skills.includes('英姿') && p.skills.includes('英魂'), '魂姿：獲得【英姿】【英魂】');
+  }
+
+  /* 34. 恪守：棄兩張同色牌使傷害 -1 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['恪守'];
+    const deck = CARDS.buildDeck(['std']);
+    const reds = deck.filter(c => c.color === 'red').slice(0, 2);
+    p.hand.length = 0; p.hand.push(...reds);
+    g.askSkill = async () => true;
+    g.askCards = async (who, opt) => (opt.pool || []).slice(0, 2);
+    g.askTargets = async () => [];
+    const hp0 = p.hp;
+    await g.damage(t, p, 2, 'normal', null);
+    check(p.hp === hp0 - 1, `恪守：2 點傷害減為 1 點（${hp0} → ${p.hp}）`);
+  }
+
+  /* 35. 築圍：判定牌為【殺】時獲得 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0];
+    p.skills = ['築圍'];
+    g.askSkill = async () => true;
+    const sha = CARDS.buildDeck(['std']).find(c => c.name === '殺');
+    g.deck.push(sha);
+    g.current = p;
+    const before = p.hand.length;
+    const jc = await g.judge(p, '築圍測試');
+    check(jc === sha && p.hand.includes(sha), '築圍：判定牌為【殺】時獲得之');
+    check(p.hand.length === before + 1, '築圍：牌進入手牌');
   }
 
   console.log(fails === 0 ? '\n全部通過' : `\n${fails} 項失敗`);

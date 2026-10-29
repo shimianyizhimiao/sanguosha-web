@@ -704,13 +704,19 @@
       await this.trigger('turnStart', { player: p });
       if (!p.alive || this.over) return;
 
-      // 判定階段
+      // 判定階段（神速等技能可跳過判定＋摸牌階段）
+      if (p.turnFlags.skipJudgeDraw) {
+        this.log(`${this.nameOf(p)} 跳過判定階段與摸牌階段`, 'info');
+      } else {
       this.phase = 'judge';
       await this.trigger('phaseStart', { player: p, phase: 'judge' });
       await this.judgePhase(p);
+      }
       if (!p.alive || this.over) return;
 
       // 摸牌階段
+      if (p.turnFlags.skipJudgeDraw) { /* 已隨判定階段一起跳過 */ }
+      else {
       this.phase = 'draw';
       await this.trigger('phaseStart', { player: p, phase: 'draw' });
       if (p.turnFlags.skipDrawNext) {
@@ -724,6 +730,7 @@
         this.log(`${this.nameOf(p)} 跳過摸牌階段`);
       }
       await this.trigger('phaseEnd', { player: p, phase: 'draw' });
+      }
       if (!p.alive || this.over) return;
 
       // 出牌階段
@@ -840,6 +847,10 @@
 
     /* ============================ 出牌階段 ============================ */
     async playPhase(p) {
+      if (p.turnFlags && p.turnFlags.skipPlay) {
+        this.log(`${this.nameOf(p)} 跳過出牌階段`, 'info');
+        return;
+      }
       let guard = 0;
       while (p.alive && !this.over && guard++ < 60) {
         if (p.turnFlags.endPlay) break;

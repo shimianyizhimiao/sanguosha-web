@@ -668,6 +668,235 @@
   for (const n of DONE4) if (SK[n]) { delete SK[n].todo; SK[n].impl = true; }
   root.SGS_SKILLS_DONE = (root.SGS_SKILLS_DONE || []).concat(DONE4);
 
+
+  /* ═══════════ 第五批 ═══════════ */
+
+  const isRedCard = c => c && (c.color === 'red' || c.suit === '♥' || c.suit === '♦');
+
+  /* ── 神速（夏侯淵）：跳階段換【殺】 ───────────────────────── */
+  SK['神速'] = {
+    type: 'trigger',
+    desc: '你可以選擇一項或多項：1.跳過判定階段和摸牌階段，視為對一名角色使用一張【殺】；2.跳過出牌階段並棄置一張裝備牌，視為對一名角色使用一張【殺】。',
+    events: {
+      async phaseStart(g, ctx, p) {
+        if (ctx.player !== p) return;
+        const sha = { id: 'v神速' + Date.now(), name: '殺', type: 'basic', virtual: true, subcards: [], suit: '♠', rank: 7, skill: '神速' };
+
+        // ① 跳過判定＋摸牌階段
+        if (ctx.phase === 'judge' && !p.turnFlags.shenSu1) {
+          const yes = await g.askSkill(p, '神速', '【神速】跳過判定階段和摸牌階段，視為使用一張【殺】？');
+          if (!yes) return;
+          const t = await g.askTargets(p, {
+            prompt: '【神速】選擇【殺】的目標', min: 1, max: 1,
+            candidates: g.others(p).filter(q => g.shaReachable(p, q)),
+          });
+          if (!t || !t.length) return;
+          p.turnFlags.shenSu1 = true;
+          p.turnFlags.skipJudgeDraw = true;
+          g.log(`${g.nameOf(p)} 發動【神速】，跳過判定與摸牌階段`, 'skill');
+          await g.useShaOn(p, t[0], sha);
+        }
+
+        // ② 跳過出牌階段並棄一張裝備牌
+        if (ctx.phase === 'play' && !p.turnFlags.shenSu2) {
+          const eqs = [...p.hand.filter(c => !!c.slot), ...equipSlots.map(sl => p.equips[sl]).filter(Boolean)];
+          if (!eqs.length) return;
+          const yes = await g.askSkill(p, '神速', '【神速】跳過出牌階段並棄置一張裝備牌，視為使用一張【殺】？');
+          if (!yes) return;
+          const c = await g.askCard(p, { prompt: '【神速】棄置一張裝備牌', pool: eqs });
+          if (!c) return;
+          const t = await g.askTargets(p, {
+            prompt: '【神速】選擇【殺】的目標', min: 1, max: 1,
+            candidates: g.others(p).filter(q => g.shaReachable(p, q)),
+          });
+          if (!t || !t.length) return;
+          p.turnFlags.shenSu2 = true;
+          p.turnFlags.skipPlay = true;
+          if (c.slot && p.equips[c.slot] === c) { p.equips[c.slot] = null; g.onEquipChange && g.onEquipChange(p); g.toDiscard([c]); }
+          else g.consumeCards(p, [c], '神速');
+          g.log(`${g.nameOf(p)} 發動【神速】，跳過出牌階段`, 'skill');
+          await g.useShaOn(p, t[0], sha);
+        }
+      },
+    },
+  };
+
+  /* ── 天香（小喬）：棄 ♥ 手牌把傷害轉給別人 ─────────────────── */
+  SK['天香'] = {
+    type: 'trigger',
+    desc: '當你受到傷害時，你可以棄置一張紅桃手牌，防止此傷害並選擇一名其他角色：該角色受到1點傷害，然後摸X張牌（X為其已損失的體力值）。',
+    events: {
+      async beforeDamaged(g, ctx, p) {
+        if (ctx.target !== p || ctx.canceled) return;
+        const hearts = p.hand.filter(c => c.suit === '♥');
+        if (!hearts.length) return;
+        const others = g.alive().filter(q => q !== p);
+        if (!others.length) return;
+        const yes = await g.askSkill(p, '天香', '【天香】棄置一張紅桃手牌，將此傷害轉移給其他角色？');
+        if (!yes) return;
+        const c = await g.askCard(p, { prompt: '【天香】棄置一張紅桃手牌', pool: hearts });
+        if (!c) return;
+        const t = await g.askTargets(p, { prompt: '【天香】選擇承受傷害的角色', min: 1, max: 1, filter: q => q.alive && q !== p });
+        if (!t || !t.length) return;
+        const tgt = t[0];
+        g.consumeCards(p, [c], '天香');
+        ctx.canceled = true;
+        g.log(`${g.nameOf(p)} 發動【天香】，將傷害轉移給 ${g.nameOf(tgt)}`, 'skill');
+        await g.damage(null, tgt, 1, 'normal', null);
+        const lost = Math.max(0, tgt.maxHp - tgt.hp);
+        if (lost > 0) g.drawCards(tgt, lost);
+      },
+    },
+  };
+
+  /* ── 鬼道（張角）：黑色牌改判 ─────────────────────────────── */
+  SK['鬼道'] = {
+    type: 'trigger',
+    desc: '在一名角色的判定牌生效前，你可以打出一張黑色牌代替之。',
+    events: {
+      async judge(g, ctx, p) {
+        const blacks = p.hand.filter(c => !isRedCard(c));
+        if (!blacks.length) return;
+        if (ctx.player === p && ctx.reason === '鬼道') return;
+        const yes = await g.askSkill(p, '鬼道', `【鬼道】是否用一張黑色牌代替 ${g.nameOf(ctx.player)} 的判定牌？`);
+        if (!yes) return;
+        const c = await g.askCard(p, { prompt: '【鬼道】選擇一張黑色牌', pool: blacks });
+        if (!c) return;
+        const i = p.hand.indexOf(c);
+        if (i >= 0) p.hand.splice(i, 1);
+        ctx.replaced = true;
+        ctx.old = ctx.card;
+        ctx.card = c;
+        g.log(`${g.nameOf(p)} 發動【鬼道】，改判為 ${C.cardText(c)}`, 'skill');
+      },
+    },
+  };
+
+  /* ── 雷擊（張角）：閃避【殺】後判定，黑色則造成 2 點雷電傷害 ── */
+  SK['雷擊'] = {
+    type: 'trigger',
+    desc: '當你使用或打出一張【閃】時，你可以令一名角色進行判定：若結果為黑色，你對其造成2點雷電傷害。',
+    events: {
+      async shaDodged(g, ctx, p) {
+        if (ctx.target !== p) return;
+        const yes = await g.askSkill(p, '雷擊');
+        if (!yes) return;
+        const t = await g.askTargets(p, { prompt: '【雷擊】選擇一名角色進行判定', min: 1, max: 1, filter: q => q.alive });
+        if (!t || !t.length) return;
+        const tgt = t[0];
+        const jc = await g.judge(tgt, '雷擊');
+        if (!jc) return;
+        if (isRedCard(jc)) { g.log('【雷擊】判定為紅色，無效果'); return; }
+        g.log(`${g.nameOf(p)} 發動【雷擊】，對 ${g.nameOf(tgt)} 造成 2 點雷電傷害`, 'skill');
+        await g.damage(p, tgt, 2, 'thunder', null);
+      },
+    },
+  };
+
+  /* ── 激昂（孫策）：使用或成為【殺】／【決鬥】的目標摸一張 ───── */
+  SK['激昂'] = {
+    type: 'trigger',
+    desc: '當你使用【決鬥】或【殺】指定目標後，或當你成為【決鬥】或【殺】的目標後，你可以摸一張牌。',
+    events: {
+      async shaTargeted(g, ctx, p) {
+        if (ctx.source !== p && ctx.target !== p) return;
+        if (p.turnFlags && p.turnFlags['激昂'] >= 2) return;
+        const yes = await g.askSkill(p, '激昂');
+        if (!yes) return;
+        p.turnFlags['激昂'] = (p.turnFlags['激昂'] || 0) + 1;
+        g.drawCards(p, 1);
+        g.log(`${g.nameOf(p)} 發動【激昂】，摸一張牌`, 'skill');
+      },
+      async cardUsed(g, ctx, p) {
+        if (ctx.player !== p || ctx.name !== '決鬥') return;
+        if (ctx.targets && ctx.targets.every(t => t !== p)) {
+          const yes = await g.askSkill(p, '激昂');
+          if (!yes) return;
+          g.drawCards(p, 1);
+          g.log(`${g.nameOf(p)} 發動【激昂】（決鬥），摸一張牌`, 'skill');
+        }
+      },
+    },
+  };
+
+  /* ── 魂姿（孫策）：覺醒，體力 1 時獲得英姿與英魂 ──────────── */
+  SK['魂姿'] = {
+    type: 'awaken',
+    desc: '覺醒技，準備階段，若你的體力值為1，你減1點體力上限，然後獲得技能「英姿」和「英魂」。',
+    events: {
+      async turnStart(g, ctx, p) {
+        if (ctx.player !== p || p.awakenedHz) return;
+        if (p.hp !== 1) return;
+        p.awakenedHz = true;
+        g.loseMaxHp(p, 1);
+        for (const n of ['英姿', '英魂']) if (!p.skills.includes(n)) p.skills.push(n);
+        g.log(`${g.nameOf(p)} 覺醒【魂姿】：失去 1 點體力上限，獲得【英姿】【英魂】`, 'skill');
+        g.update();
+      },
+    },
+  };
+
+  /* ── 恪守：受傷害時棄兩張同色牌使傷害 -1 ─────────────────── */
+  SK['恪守'] = {
+    type: 'trigger',
+    desc: '當你受到傷害時，你可以棄置兩張顏色相同的牌，然後此傷害-1。若沒有與你勢力相同的其他角色，則你進行一次判定，若結果為紅色，你摸一張牌。',
+    events: {
+      async beforeDamaged(g, ctx, p) {
+        if (ctx.target !== p || ctx.canceled) return;
+        const pool = [...p.hand, ...equipSlots.map(sl => p.equips[sl]).filter(Boolean)];
+        const red = pool.filter(c => isRedCard(c));
+        const black = pool.filter(c => !isRedCard(c));
+        const group = red.length >= 2 ? red : (black.length >= 2 ? black : null);
+        if (group) {
+          const yes = await g.askSkill(p, '恪守', '【恪守】棄置兩張同色牌，令此傷害 -1？');
+          if (yes) {
+            const cs = await g.askCards(p, { min: 2, max: 2, pool: group, prompt: '【恪守】棄置兩張同色牌' });
+            if (cs && cs.length === 2) {
+              // 裝備牌要先從裝備區摘下來再進棄牌堆，否則 removeCardFromPlayer 找不到、牌會憑空消失
+              const eqCards = cs.filter(c => c.slot && p.equips[c.slot] === c);
+              for (const c of eqCards) { p.equips[c.slot] = null; g.toDiscard([c]); }
+              if (eqCards.length) g.onEquipChange && g.onEquipChange(p);
+              const handCards = cs.filter(c => p.hand.includes(c));
+              if (handCards.length) g.consumeCards(p, handCards, '恪守');
+              ctx.amount = Math.max(0, ctx.amount - 1);
+              if (ctx.amount === 0) ctx.canceled = true;
+              g.log(`${g.nameOf(p)} 發動【恪守】，此傷害 -1`, 'skill');
+            }
+          }
+        }
+        const same = g.alive().some(q => q !== p && q.generals.some(x => p.generals.some(y => x.kingdom === y.kingdom)));
+        if (!same) {
+          const jc = await g.judge(p, '恪守');
+          if (jc && isRedCard(jc)) { g.drawCards(p, 1); g.log('【恪守】判定為紅色，摸一張牌', 'skill'); }
+        }
+      },
+    },
+  };
+
+  /* ── 築圍：判定牌為【殺】／【決鬥】時獲得，並強化本回合 ────── */
+  SK['築圍'] = {
+    type: 'trigger',
+    desc: '你的判定牌生效後，若此牌為【殺】或【決鬥】，你可以獲得之，然後你可以令當前回合角色本回合使用【殺】的次數上限+1，手牌上限+1。',
+    events: {
+      async judge(g, ctx, p) {
+        if (ctx.player !== p) return;
+        const nm = ctx.card && ctx.card.name;
+        if (nm !== '殺' && nm !== '決鬥') return;
+        const yes = await g.askSkill(p, '築圍', `【築圍】判定牌是${C.cardText(ctx.card)}，是否獲得之？`);
+        if (!yes) return;
+        ctx.gain = p;
+        g.log(`${g.nameOf(p)} 發動【築圍】，獲得判定牌 ${C.cardText(ctx.card)}`, 'skill');
+        const cur = g.current || p;
+        cur.turnFlags.extraSha = (cur.turnFlags.extraSha || 0) + 1;
+        cur.turnFlags.handLimitX = (cur.turnFlags.handLimitX || 0) + 1;
+      },
+    },
+  };
+
+  const DONE5 = ['神速', '天香', '鬼道', '雷擊', '激昂', '魂姿', '恪守', '築圍'];
+  for (const n of DONE5) if (SK[n]) { delete SK[n].todo; SK[n].impl = true; }
+  root.SGS_SKILLS_DONE = (root.SGS_SKILLS_DONE || []).concat(DONE5);
+
   const DONE = ['血裔', '據守', '狂骨', '破虜', '烈弓', '直諫', '固政', '英魂'];
   for (const n of DONE) if (SK[n]) { delete SK[n].todo; SK[n].impl = true; }
   root.SGS_SKILLS_DONE = (root.SGS_SKILLS_DONE || []).concat(DONE);
