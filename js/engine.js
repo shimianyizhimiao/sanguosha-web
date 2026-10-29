@@ -867,6 +867,8 @@
     /* ============================ 打出 / 使用牌 ============================ */
     async playCard(p, card, targets, asName, skill) {
       const name = asName || card.name;
+      // 供 UI 在牌桌中央顯示「剛剛打出的牌」（仿官方）
+      this.lastPlay = { name, suit: card.suit, rank: card.rank, by: p.id, at: Date.now() };
       const vcard = (name === card.name) ? card : this.virtualCard(card, name, skill);
 
       if (name === '裝備' || card.type === 'equip') {
@@ -1001,6 +1003,7 @@
       // 虛擬牌不在手牌裡：不要動到手牌（以前 indexOf=-1 會誤刪最後一張）
       this.stats.cards++;
       this.log(`${this.nameOf(p)} 使用 ${C.cardText(card)}${tgts[0] !== p || name !== '無中生有' ? ' → ' + tgts.map(t => this.nameOf(t)).join('、') : ''}`, 'use');
+      this.lastPlay = { name, suit: card.suit, rank: card.rank, by: p.id, at: Date.now() };
       this.emit('trick', { player: p, name, targets: tgts, card });
       // 錦囊多目標時，允許技能令其中部分目標無效（例：界甘寧【奮威】）
       if (tgts.length > 1) {

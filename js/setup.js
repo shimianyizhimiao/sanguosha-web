@@ -67,6 +67,13 @@
     const allGen = Object.values(root.SGS_GENERALS);
     const pool = allGen.filter(g => generalPacks.includes(g.pack));
     const used = new Set();
+    // 玩家自己先選好的武將要先記進 used，否則 AI 會抽到同一隻（實測 60 局有 3 局重複）
+    if (opts.forcedGenerals) {
+      for (const f of opts.forcedGenerals) {
+        if (!f) continue;
+        for (const g of [].concat(f)) if (g && g.name) used.add(g.name);
+      }
+    }
 
     // 玩家建立
     for (let i = 0; i < nPlayers; i++) {

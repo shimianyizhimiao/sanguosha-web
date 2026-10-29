@@ -327,6 +327,7 @@
   function render() {
     if (!game) return;
     renderSeats();
+    try { renderRoleBar(); renderDeckInfo(); renderPlayArea(); } catch (e) {}
     renderCenter();
     renderHand();
     renderActions();
@@ -409,16 +410,60 @@
     return (p.identity === 'lord' ? '👑 ' : '') + g;
   }
 
+
+  /* 左上：身份人數統計（仿官方 主x1 忠x1 反x2 內x1） */
+  function renderRoleBar() {
+    const bar = document.getElementById('roleBar');
+    if (!bar || !game) return;
+    if (game.mode === 'duel' || game.mode === 'hotseat' && game.players.length === 2) {
+      bar.textContent = game.mode === 'duel' ? '1v1 單挑' : '';
+      return;
+    }
+    const alive = game.players.filter(p => p.alive);
+    const cnt = { lord: 0, loyal: 0, rebel: 0, spy: 0 };
+    game.players.forEach(p => { if (cnt[p.identity] !== undefined) cnt[p.identity]++; });
+    const aliveCnt = { lord: 0, loyal: 0, rebel: 0, spy: 0 };
+    alive.forEach(p => { if (aliveCnt[p.identity] !== undefined) aliveCnt[p.identity]++; });
+    const txt = [
+      ['主', 'lord'], ['忠', 'loyal'], ['反', 'rebel'], ['內', 'spy'],
+    ].filter(([, k]) => cnt[k]).map(([label, k]) => `${label} ${aliveCnt[k]}/${cnt[k]}`).join('　');
+    bar.textContent = txt;
+  }
+
+  /* 右上：牌堆／棄牌堆 */
+  function renderDeckInfo() {
+    const d = document.getElementById('deckInfo');
+    if (!d || !game) return;
+    const deck = (game.deck || []).length;
+    const dis = (game.discardPile || []).length;
+    d.innerHTML = `<span>牌堆 <b>${deck}</b></span><span>棄 <b>${dis}</b></span>`;
+  }
+
+  /* 中央：剛剛打出的牌 */
+  function renderPlayArea() {
+    const box = document.getElementById('playArea');
+    if (!box || !game) return;
+    const lp = game.lastPlay;
+    if (!lp || Date.now() - (lp.at || 0) > 6000) { box.innerHTML = ''; return; }
+    const who = game.playerById && game.playerById(lp.by);
+    const mine = who && who.seat === mySeat;
+    box.innerHTML = `<div class="playcard ${C.isRed({ suit: lp.suit }) ? 'red' : 'black'}">
+        <div class="suit">${lp.suit || ''}</div><div class="num">${C.rankText(lp.rank)}</div>
+        <div class="cname">${lp.name}</div></div>
+      <div class="playby">${mine ? '你' : (who ? who.generals.map(g => g.name).join('&') : '')} 打出</div>`;
+  }
+
   function renderSeats() {
     const seats = $('#seats');
     const me = viewer() || game.players[0];
     const n = game.players.length;
     const W = seats.clientWidth || window.innerWidth;
     const H = seats.clientHeight || (window.innerHeight - 200);
-    const cx = W / 2, cy = H / 2;
     const small = window.innerWidth <= 720;
-    const rx = Math.min(W * (small ? 0.32 : 0.40), 430);
-    const ry = Math.min(H * (small ? 0.33 : 0.38), 300);
+    const cx = W / 2, cy = H / 2 + (small ? 10 : -10);
+    // 座位是立繪卡（112×158），環半徑要扣掉卡片高度，否則自己的卡會被下方手牌區切掉
+    const rx = Math.min(W * (small ? 0.30 : 0.38), 400);
+    const ry = Math.min(H * (small ? 0.26 : 0.34), 240) - (small ? 6 : 18);
 
     seats.innerHTML = '';
     for (let k = 0; k < n; k++) {
@@ -436,34 +481,41 @@
       seat.style.left = px + 'px';
       seat.style.top = py + 'px';
 
-      const frame = el('div', 'frame');
       const g0 = p.generals[0] || { name: '?', kingdom: '群' };
-
       seat.classList.add('k-' + (KINGDOM_TXT[g0.kingdom] || '群'));
-      const av = avatarEl(g0.name, g0.kingdom);
+
+      // 仿官方：整塊是武將立繪卡，左緣直排勾玉、底部名牌、右下角手牌數
+      const frame = el('div', 'frame');
+      const av = avatarEl(g0.name, g0.kingdom, 'portrait');
       frame.appendChild(av);
+      frame.appendChild(el('div', 'shade'));
 
-      const meta = el('div', 'meta');
+      const hpCol = el('div', 'hpcol');
+      const mx = Math.max(p.maxHp, p.hp);
+      for (let i = 0; i < mx; i++) hpCol.appendChild(magatama(i < p.hp));
+      frame.appendChild(hpCol);
+
+      const plate = el('div', 'plate');
       const nm = el('div', 'nm', p.generals.map(g => g.name).join('&'));
-      const role = el('div', 'role',
-        p.identity === 'lord' ? '主公' :
-          (p.identityRevealed || !p.alive ? ROLE_TXT[p.identity] : '身份不明'));
-      meta.appendChild(nm);
-      meta.appendChild(role);
-      meta.appendChild(hpJade(p.hp, p.maxHp));
+      const roleTxt = p.identity === 'lord' ? '主公'
+        : (p.identityRevealed || !p.alive ? ROLE_TXT[p.identity] : '身份不明');
+      plate.appendChild(nm);
+      plate.appendChild(el('div', 'role', roleTxt));
+      frame.appendChild(plate);
 
-      const info = el('div', 'info');
-      const eq = ['weapon', 'armor', 'horse+', 'horse-', 'treasure']
-        .map(s => p.equips[s]).filter(Boolean).map(c => c.name);
-      info.textContent = `手牌 ${p.hand.length}`;
-      meta.appendChild(info);
-      frame.appendChild(meta);
-      const eqs = el('div', 'equips', eq.join(' · '));
-      frame.appendChild(eqs);
+      frame.appendChild(el('div', 'hand-n', String(p.hand.length)));
 
-      const hn = el('div', 'hand-n', String(p.hand.length));
-      frame.appendChild(hn);
+      const eqNames = ['weapon', 'armor', 'horse+', 'horse-', 'treasure']
+        .map(s2 => p.equips[s2]).filter(Boolean);
+      if (eqNames.length) {
+        const eqs = el('div', 'equips');
+        eqNames.forEach(c => eqs.appendChild(el('span', 'eqmini', c.name)));
+        frame.appendChild(eqs);
+      }
       if (p.chained) frame.appendChild(el('div', 'chained', '⛓'));
+      if (p.flipped) frame.appendChild(el('div', 'chained', '⟲'));
+      if (p.judge && p.judge.length) frame.appendChild(el('div', 'judge-n', '判' + p.judge.length));
+
       seat.appendChild(frame);
       if (pending && pending.req.kind === 'targets' && sel.targets.includes(p.id)) {
         frame.appendChild(el('div', 'bubble', '目標'));
