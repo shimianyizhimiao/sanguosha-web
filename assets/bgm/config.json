@@ -1,0 +1,6 @@
+{
+  "local": false,
+  "youtube": "aEhc2NKUsjA",
+  "volume": 35,
+  "_說明": "把 theme.mp3 放進這個資料夾後，把 local 改成 true 就會改用本機音檔；youtube 是後備。"
+}

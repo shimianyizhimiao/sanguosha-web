@@ -271,3 +271,28 @@ button{font-family:inherit;cursor:pointer}
 
 #bgm { position: fixed; left: -9999px; top: 0; width: 2px; height: 2px; overflow: hidden; pointer-events: none; }
 #topbar .act.on { border-color: var(--gold); color: var(--gold); }
+
+/* 牌面插畫帶（assets/cards/art/<牌名>.png）；缺圖時自動退回純文字牌 */
+.card .cart{position:absolute;left:0;right:0;top:19px;width:100%;height:66px;
+  object-fit:cover;object-position:center 40%;pointer-events:none;user-select:none;
+  filter:saturate(.95)}
+.card.hasart{background:linear-gradient(180deg,#efe7d3,#d9cfb4)}
+.card.hasart .cname{top:auto;bottom:15px;font-size:13px;color:#241d12;
+  font-weight:800;letter-spacing:.04em;padding:0 2px;line-height:1.1}
+.card.hasart .ctype{color:#6a6252;bottom:4px}
+.card.hasart .suit{left:4px;top:2px;font-size:13px}
+.card.hasart .num{right:4px;top:2px;font-size:11px;opacity:.9}
+
+/* 手機：牌名不換行、工具列不擠出畫面 */
+@media (max-width:720px){
+  html,body{overflow-x:hidden;max-width:100vw}
+  #table,#board,#boardwrap,#stage{width:100vw;max-width:100vw;box-sizing:border-box}
+  .card.hasart .cname{font-size:10.5px;line-height:1.05;bottom:11px;letter-spacing:0;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 1px}
+  .card.hasart .ctype{font-size:8px;bottom:2px;letter-spacing:.04em}
+  #bottom,#topbar,#hand,#actions{min-width:0;max-width:100%}
+  #bottom{padding:6px 8px}
+  #topbar{gap:4px;flex-wrap:wrap;justify-content:flex-end}
+  #topbar .act,#topbar button{font-size:11px;padding:4px 7px}
+  #actions button,.pickbar button{font-size:13px;padding:7px 12px}
+}

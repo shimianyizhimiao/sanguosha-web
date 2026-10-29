@@ -486,7 +486,9 @@
     if (opts.disabled) d.classList.add('dis');
     if (opts.selected) d.classList.add('sel');
     const typeTxt = card.type === 'basic' ? '基本牌' : (card.type === 'trick' ? (card.delay ? '延時錦囊' : '錦囊') : (card.slotName || '裝備'));
-    d.innerHTML = `<div class="suit">${card.suit}</div><div class="num">${C.rankText(card.rank)}</div>
+    d.innerHTML = `<img class="cart" alt="" src="assets/cards/art/${encodeURIComponent(card.name)}.png"
+        onload="this.parentNode.classList.add('hasart')" onerror="this.remove()">
+      <div class="suit">${card.suit}</div><div class="num">${C.rankText(card.rank)}</div>
       <div class="cname">${card.name}</div><div class="ctype">${typeTxt}</div>`;
     if (opts.onClick) d.onclick = opts.onClick;
     return d;
@@ -899,13 +901,13 @@
 
   let localBgm = null;
 
-  /* 若 assets/bgm/theme.mp3 存在，優先用本機音檔（可離線、不受網路封鎖影響） */
+  /* 讀 assets/bgm/config.json；local:true 時用本機 theme.mp3，否則用 YouTube（不會有 404 探測） */
   function tryLocalBgm(cb) {
-    fetch('assets/bgm/theme.mp3', { method: 'HEAD' }).then(r => {
-      if (!r.ok) return cb(false);
+    fetch('assets/bgm/config.json', { cache: 'no-cache' }).then(r => r.ok ? r.json() : null).then(cfg => {
+      if (!cfg || !cfg.local) return cb(false);
       localBgm = new Audio('assets/bgm/theme.mp3');
       localBgm.loop = true;
-      localBgm.volume = 0.4;
+      localBgm.volume = (cfg.volume || 35) / 100;
       if (bgmWanted) localBgm.play().catch(() => {});
       document.querySelector('#btnBgm').classList.add('on');
       cb(true);
