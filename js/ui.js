@@ -453,6 +453,32 @@
       <div class="playby">${mine ? '你' : (who ? who.generals.map(g => g.name).join('&') : '')} 打出</div>`;
   }
 
+
+  /* 技能詳情：點自己的武將卡才開，對手的卡不給點 */
+  function showSkillSheet(p) {
+    const sheet = document.getElementById('sheet');
+    const body = document.getElementById('sheetBody');
+    const title = document.getElementById('sheetTitle');
+    if (!sheet || !body) return;
+    title.textContent = p.generals.map(g => g.name).join(' & ') + `（${p.hp}/${p.maxHp}）`;
+    body.innerHTML = '';
+    p.generals.forEach(g => {
+      const head = el('div', 'sheet-gen');
+      head.textContent = `${g.name} · ${KINGDOM_TXT[g.kingdom] || g.kingdom} · ${g.hp} 體力`;
+      body.appendChild(head);
+      g.skills.forEach(name => {
+        const sk = (window.SGS_SKILLS || {})[name] || {};
+        const row = el('div', 'sheet-skill');
+        row.appendChild(el('div', 'sk-name', `【${name}】`));
+        row.appendChild(el('div', 'sk-desc', sk.desc || '（尚無說明）'));
+        body.appendChild(row);
+      });
+    });
+    const extra = el('div', 'sheet-note', '遊戲中主動技按鈕在手牌上方；觸發技會在時機到了自動詢問你。');
+    body.appendChild(extra);
+    sheet.classList.remove('hidden');
+  }
+
   function renderSeats() {
     const seats = $('#seats');
     const me = viewer() || game.players[0];
@@ -486,8 +512,18 @@
 
       // 仿官方：整塊是武將立繪卡，左緣直排勾玉、底部名牌、右下角手牌數
       const frame = el('div', 'frame');
-      const av = avatarEl(g0.name, g0.kingdom, 'portrait');
-      frame.appendChild(av);
+      if (p.generals.length > 1) {
+        const duo = el('div', 'duo');
+        p.generals.forEach(g => {
+          const box = el('div', 'duobox');
+          box.appendChild(avatarEl(g.name, g.kingdom, 'portrait'));
+          box.appendChild(el('div', 'duoname', g.name));
+          duo.appendChild(box);
+        });
+        frame.appendChild(duo);
+      } else {
+        frame.appendChild(avatarEl(g0.name, g0.kingdom, 'portrait'));
+      }
       frame.appendChild(el('div', 'shade'));
 
       const hpCol = el('div', 'hpcol');
@@ -505,24 +541,47 @@
 
       frame.appendChild(el('div', 'hand-n', String(p.hand.length)));
 
-      const eqNames = ['weapon', 'armor', 'horse+', 'horse-', 'treasure']
-        .map(s2 => p.equips[s2]).filter(Boolean);
-      if (eqNames.length) {
-        const eqs = el('div', 'equips');
-        eqNames.forEach(c => eqs.appendChild(el('span', 'eqmini', c.name)));
-        frame.appendChild(eqs);
+      const SLOTS = [['weapon', '武'], ['armor', '防'], ['horse+', '+1'], ['horse-', '-1'], ['treasure', '寶']];
+      const hasEq = SLOTS.some(([k]) => p.equips[k]);
+      if (hasEq) {
+        const eqbar = el('div', 'eqbar');
+        SLOTS.forEach(([k, icon]) => {
+          const c = p.equips[k];
+          if (!c) return;
+          const chip = el('span', 'eqitem');
+          chip.appendChild(el('i', 'eqicon', icon));
+          chip.appendChild(el('b', '', c.name));
+          eqbar.appendChild(chip);
+        });
+        seat.appendChild(eqbar);
       }
       if (p.chained) frame.appendChild(el('div', 'chained', '⛓'));
       if (p.flipped) frame.appendChild(el('div', 'chained', '⟲'));
       if (p.judge && p.judge.length) frame.appendChild(el('div', 'judge-n', '判' + p.judge.length));
 
       seat.appendChild(frame);
+      if (p === me) {
+        const skBtn = el('div', 'skbtn', '技能');
+        skBtn.onclick = (ev) => { ev.stopPropagation(); showSkillSheet(p); };
+        frame.appendChild(skBtn);
+        seat.classList.add('clickable');
+        seat.onclick = (ev) => {
+          if (pending && pending.req.kind === 'targets' && isTargetable(p)) return;
+          showSkillSheet(p);
+        };
+      }
       if (pending && pending.req.kind === 'targets' && sel.targets.includes(p.id)) {
         frame.appendChild(el('div', 'bubble', '目標'));
       }
       seats.appendChild(seat);
     }
   }
+
+  document.addEventListener('click', (ev) => {
+    const sheet = document.getElementById('sheet');
+    if (!sheet || sheet.classList.contains('hidden')) return;
+    if (ev.target.id === 'sheetClose' || ev.target.id === 'sheet') sheet.classList.add('hidden');
+  });
 
   function isTargetable(p) {
     if (!pending) return false;
@@ -569,7 +628,8 @@
       playableIds = new Set();
       (req.options || []).forEach(o => o.cards.forEach(id => playableIds.add(id)));
     }
-    if (req && (req.kind === 'discard' || req.kind === 'cards')) playableIds = new Set(req.cards);
+    if (req && req.kind === 'discard') playableIds = new Set(me.hand.map(c => c.id));
+    if (req && req.kind === 'cards' && req.cards) playableIds = new Set(req.cards);
 
     me.hand.forEach(card => {
       const disabled = playableIds ? !playableIds.has(card.id) : false;

@@ -1300,19 +1300,15 @@
 
     /* 是否成功閃避（含八卦陣、技能轉化） */
     async tryEvade(target, source, card, noShan) {
+      if (noShan) { this.log(`${this.nameOf(target)} 因【鐵騎】不能使用【閃】`); return false; }
       // 八卦陣
       const armor = this.armorOf(target);
       if (armor && armor.name === '八卦陣') {
-        const use = await this.ask(target, {
-          kind: 'choice', prompt: '是否發動【八卦陣】判定？（紅色視為【閃】）',
-          options: ['判定', '不發動'], cancelable: true,
-        });
-        if (use === 0) {
-          const jc = await this.judge(target, '八卦陣');
-          if (jc && (isRed(jc))) { this.log('八卦陣生效，視為出【閃】'); return true; }
-        }
+        // 八卦陣：裝備自帶判定，需【閃】時自動判定，不再詢問（使用者要求照官方手感）
+        const jc = await this.judge(target, '八卦陣');
+        if (jc && isRed(jc)) { this.log('八卦陣生效，視為出【閃】'); return true; }
+        this.log('八卦陣判定失敗');
       }
-      if (noShan) { this.log(`${this.nameOf(target)} 因【鐵騎】不能使用【閃】`); return false; }
       const need = source && source.skills && source.skills.includes('無雙') ? 2 : 1;
       for (let i = 0; i < need; i++) {
         const r = await this.askForCard(target, '閃', {
