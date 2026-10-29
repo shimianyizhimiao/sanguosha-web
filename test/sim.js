@@ -11,7 +11,7 @@ const GPACKS = (args[3] || 'std').split(',');
 function countCards(g) {
   let n = g.deck.length + g.discardPile.length;
   for (const p of g.players) {
-    n += p.hand.length + p.judge.length + (p.stars ? p.stars.length : 0) + (p.buqu ? p.buqu.length : 0);
+    n += p.hand.length + p.judge.length + (p.stars ? p.stars.length : 0) + (p.buqu ? p.buqu.length : 0) + (p.ren ? 1 : 0);
     for (const s of ['weapon', 'armor', 'horse+', 'horse-', 'treasure']) if (p.equips[s]) n++;
   }
   return n;

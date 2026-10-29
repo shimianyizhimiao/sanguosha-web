@@ -91,6 +91,7 @@
     toDiscard(cards) {
       for (const c of cards) {
         if (!c) continue;
+        if (C.isRed(c)) this.turnRedCount = (this.turnRedCount || 0) + 1;
         // 虛擬牌（技能合成、沒有實體子牌）不進棄牌堆，否則牌數會多出來
         if (c.virtual && !(c.subcards && c.subcards.length)) continue;
         this.discardPile.push(c);
@@ -159,6 +160,7 @@
 
     distance(a, b) {
       if (a === b) return 0;
+      if (a.turnFlags && a.turnFlags.noDistance) return 1;   // 決堰：本回合使用牌無距離限制
       let d = this.seatDistance(a, b);
       d += a.equips['horse-'] ? -1 : 0;   // 自己 -1 馬
       d += b.equips['horse+'] ? 1 : 0;    // 對方 +1 馬
@@ -698,6 +700,7 @@
         return;
       }
       this.update();
+      this.turnRedCount = 0;
       await this.trigger('turnStart', { player: p });
       if (!p.alive || this.over) return;
 
@@ -821,6 +824,7 @@
           if (sk && sk.limitFor && !this.isSilenced(q, skName)) lim += sk.limitFor(this, q, p) || 0;
         }
       }
+      if (p.turnFlags && p.turnFlags.handLimitX) lim += p.turnFlags.handLimitX;
       if (p.modHandLimit) lim = p.modHandLimit(lim);
       return lim;
     }

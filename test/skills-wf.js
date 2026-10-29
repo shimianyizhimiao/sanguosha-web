@@ -292,6 +292,111 @@ function mk(a, b) {
     check(p.hand.length === 1, `懷柔：摸一張（實際 ${p.hand.length}）`);
   }
 
+
+  /* 21. 決堰：廢除武器欄 → 本回合多 3 張【殺】；防具欄 → 摸 3、上限 +3 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0];
+    p.skills = ['決堰'];
+    const baseSha = g.shaLimit(p), baseHand = p.hand.length, baseLim = g.handLimit(p);
+    g.ask = async () => 0;                       // 選「廢除武器欄」
+    await root.SGS_SKILLS['決堰'].active(g, p);
+    check(!!p.deadSlots.weapon, '決堰：武器欄已廢除');
+    check(g.shaLimit(p) === baseSha + 3, `決堰：可多出 3 張【殺】（${baseSha} → ${g.shaLimit(p)}）`);
+
+    const g2 = mk('魏延');
+    const q = g2.players[0];
+    q.skills = ['決堰'];
+    const h0 = q.hand.length, l0 = g2.handLimit(q);
+    g2.ask = async () => 1;                      // 選「廢除防具欄」
+    await root.SGS_SKILLS['決堰'].active(g2, q);
+    check(q.hand.length === h0 + 3, `決堰：摸三張（${h0} → ${q.hand.length}）`);
+    check(g2.handLimit(q) === l0 + 3, `決堰：手牌上限 +3（${l0} → ${g2.handLimit(q)}）`);
+  }
+
+  /* 22. 破勢：所有裝備欄廢除後覺醒 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0];
+    p.skills = ['決堰', '破勢'];
+    for (const sl of ['weapon', 'armor', 'horse+', 'horse-', 'treasure']) g.abolishSlot(p, sl);
+    const maxBefore = p.maxHp;
+    await g.trigger('turnStart', { player: p });
+    check(p.maxHp === maxBefore - 1, `破勢：體力上限 -1（${maxBefore} → ${p.maxHp}）`);
+    check(p.skills.includes('懷柔') && !p.skills.includes('決堰'), '破勢：失去【決堰】、獲得【懷柔】');
+  }
+
+  /* 23. 蹈刃：交一張手牌，然後對交集範圍造成 1 點傷害 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['蹈刃'];
+    p.hand.length = 0; p.hand.push(...CARDS.buildDeck(['std']).slice(0, 3));
+    g.askCard = async (who, opt) => (opt.pool || [])[0] || null;
+    g.askTargets = async () => [t];
+    const th = t.hand.length, hp0 = t.hp;
+    await root.SGS_SKILLS['蹈刃'].active(g, p);
+    check(t.hand.length === th + 1, '蹈刃：目標收到一張手牌');
+    check(t.hp < hp0 || p.hp < p.maxHp, '蹈刃：範圍交集內角色受到傷害');
+  }
+
+  /* 24. 飛軍＋兵略：目標手牌多 → 交給你一張，且摸兩張 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['飛軍', '兵略'];
+    p.hand.length = 0; p.hand.push(...CARDS.buildDeck(['std']).slice(0, 1));
+    t.hand.push(...CARDS.buildDeck(['std']).slice(0, 5));
+    g.askCard = async (who, opt) => (opt.pool || [])[0] || null;
+    g.askTargets = async () => [t];
+    const ph = p.hand.length, th = t.hand.length;
+    await root.SGS_SKILLS['飛軍'].active(g, p);
+    check(t.hand.length === th - 1, '飛軍：目標交出一張牌');
+    check(p.hand.length === ph - 1 + 1 + 2, `飛軍＋兵略：棄 1、得 1、摸 2（${ph} → ${p.hand.length}）`);
+  }
+
+  /* 25. 集智（界）：使用普通錦囊摸一張 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0];
+    p.skills = ['集智（界）'];
+    g.askSkill = async () => true;
+    g.ask = async () => 1;                       // 保留剛摸到的牌
+    const trick = CARDS.buildDeck(['std']).find(c => c.type === 'trick' && !c.delay);
+    const before = p.hand.length;
+    await g.trigger('cardUsed', { player: p, card: trick, name: trick.name, targets: [] });
+    check(p.hand.length === before + 1, `集智（界）：使用錦囊摸一張（${before} → ${p.hand.length}）`);
+  }
+
+  /* 26. 明任：開局存「任」，結束階段可替換 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0];
+    p.skills = ['明任'];
+    g.askCard = async (who, opt) => (opt.pool || [])[0] || null;
+    g.askSkill = async () => true;
+    await g.trigger('gameStart', {});
+    check(!!p.ren, '明任：開局已將一張手牌置於武將牌上');
+    const old = p.ren;
+    p.hand.push(...CARDS.buildDeck(['std']).slice(0, 2));
+    await g.trigger('turnEnd', { player: p });
+    check(p.ren && p.ren !== old && p.hand.includes(old), '明任：結束階段成功替換「任」');
+  }
+
+  /* 27. 再起：本回合紅色棄牌數 → 目標選擇摸牌 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['再起'];
+    g.turnRedCount = 2;
+    g.askSkill = async () => true;
+    g.askTargets = async () => [t];
+    g.ask = async () => 0;                       // 選「摸一張牌」
+    const before = t.hand.length;
+    await g.trigger('discardPhaseEnd', { player: g.players[0], count: 2, cards: [] });
+    check(t.hand.length >= before + 1, `再起：目標摸牌（${before} → ${t.hand.length}）`);
+  }
+
   console.log(fails === 0 ? '\n全部通過' : `\n${fails} 項失敗`);
   process.exit(fails ? 1 : 0);
 })();

@@ -386,6 +386,288 @@
   for (const n of DONE3) if (SK[n]) { delete SK[n].todo; SK[n].impl = true; }
   root.SGS_SKILLS_DONE = (root.SGS_SKILLS_DONE || []).concat(DONE3);
 
+
+  /* ═══════════ 第四批 ═══════════ */
+
+  /* ── 決堰：廢除一種裝備欄，換取對應效果 ───────────────────── */
+  const SLOT_TXT = { weapon: '武器', armor: '防具', 'horse+': '坐騎', 'horse-': '坐騎', treasure: '寶物' };
+  SK['決堰'] = {
+    type: 'active',
+    desc: '出牌階段限一次，你可以廢除你裝備區裡的一種裝備欄，然後執行對應的一項：武器欄，本回合使用【殺】的限制次數+3；防具欄，摸三張牌，本回合手牌上限+3；坐騎欄，本回合你使用牌無距離限制；寶物欄，本回合獲得「集智」。',
+    canUse(g, p) {
+      if (p.turnFlags && p.turnFlags['決堰']) return false;
+      return ['weapon', 'armor', 'horse+', 'horse-', 'treasure'].some(s => !(p.deadSlots && p.deadSlots[s]));
+    },
+    async active(g, p) {
+      if (p.turnFlags['決堰']) return;
+      const kinds = [];
+      for (const s of ['weapon', 'armor', 'horse+', 'treasure']) {
+        if (!(p.deadSlots && p.deadSlots[s]) && !kinds.some(k => k.slot === s)) kinds.push({ slot: s, label: SLOT_TXT[s] + '欄' });
+      }
+      if (!kinds.length) return;
+      const idx = await g.ask(p, {
+        kind: 'choice', prompt: '【決堰】廢除哪一個裝備欄？',
+        options: kinds.map(k => `廢除${k.label}`), cancelable: true,
+      });
+      if (idx === null || idx === undefined) return;
+      const slot = kinds[idx].slot;
+      p.turnFlags['決堰'] = true;
+      g.abolishSlot(p, slot);
+      if (slot === 'weapon') {
+        p.turnFlags.extraSha = (p.turnFlags.extraSha || 0) + 3;
+        g.log(`${g.nameOf(p)} 發動【決堰】：本回合可多使用 3 張【殺】`, 'skill');
+      } else if (slot === 'armor') {
+        g.drawCards(p, 3);
+        p.turnFlags.handLimitX = (p.turnFlags.handLimitX || 0) + 3;
+        g.log(`${g.nameOf(p)} 發動【決堰】：摸三張牌，本回合手牌上限 +3`, 'skill');
+      } else if (slot === 'horse+') {
+        p.turnFlags.noDistance = true;
+        g.log(`${g.nameOf(p)} 發動【決堰】：本回合使用牌無距離限制`, 'skill');
+      } else {
+        if (!p.skills.includes('集智（標）')) p.skills.push('集智（標）');
+        p.granted = p.granted || [];
+        p.granted.push({ name: '集智（標）', untilTurn: p.turnCount });
+        g.log(`${g.nameOf(p)} 發動【決堰】：本回合獲得「集智」`, 'skill');
+      }
+      g.update();
+    },
+  };
+
+  /* ── 破勢：覺醒技 ─────────────────────────────────────────── */
+  SK['破勢'] = {
+    type: 'awaken',
+    desc: '覺醒技，準備階段，若你所有裝備欄均被廢除或體力值為1，則你減1點體力上限，然後將手牌摸至體力上限，失去「決堰」，獲得「懷柔」。',
+    events: {
+      async turnStart(g, ctx, p) {
+        if (ctx.player !== p || p.awakened) return;
+        const slots = ['weapon', 'armor', 'horse+', 'horse-', 'treasure'];
+        const allDead = slots.every(s => p.deadSlots && p.deadSlots[s]);
+        if (!allDead && p.hp > 1) return;
+        p.awakened = true;
+        g.loseMaxHp(p, 1);
+        const want = Math.max(0, p.maxHp - p.hand.length);
+        if (want > 0) g.drawCards(p, want);
+        const i = p.skills.indexOf('決堰');
+        if (i >= 0) p.skills.splice(i, 1);
+        if (!p.skills.includes('懷柔')) p.skills.push('懷柔');
+        g.log(`${g.nameOf(p)} 覺醒【破勢】：失去 1 點體力上限、摸至 ${p.maxHp} 張，獲得【懷柔】`, 'skill');
+        g.update();
+      },
+    },
+  };
+
+  /* ── 蹈刃：交一張手牌，然後對雙方攻擊範圍交集內的人各造成 1 點傷害 ── */
+  SK['蹈刃'] = {
+    type: 'active',
+    desc: '出牌階段限一次，你可以將一張手牌交給一名角色，然後你對你與其攻擊範圍內均包含的所有角色各造成1點傷害。',
+    canUse(g, p) {
+      return !(p.turnFlags && p.turnFlags['蹈刃']) && p.hand.length > 0;
+    },
+    async active(g, p) {
+      if (p.turnFlags['蹈刃']) return;
+      const c = await g.askCard(p, { prompt: '【蹈刃】選擇一張手牌交給目標', pool: p.hand.slice() });
+      if (!c) return;
+      const t = await g.askTargets(p, { prompt: '【蹈刃】選擇一名角色', min: 1, max: 1 });
+      if (!t || !t.length) return;
+      const tgt = t[0];
+      p.turnFlags['蹈刃'] = true;
+      const i = p.hand.indexOf(c);
+      if (i >= 0) p.hand.splice(i, 1);
+      tgt.hand.push(c);
+      g.log(`${g.nameOf(p)} 發動【蹈刃】，將一張手牌交給 ${g.nameOf(tgt)}`, 'skill');
+      const victims = g.alive().filter(q =>
+        g.inAttackRange(p, q) && g.inAttackRange(tgt, q));
+      for (const q of victims) await g.damage(p, q, 1, 'normal', null);
+      if (!victims.length) g.log('【蹈刃】攻擊範圍內沒有交集角色', 'info');
+      g.update();
+    },
+  };
+
+  /* ── 飛軍＋兵略 ─────────────────────────────────────────────── */
+  SK['飛軍'] = {
+    type: 'active',
+    desc: '出牌階段限一次，你可以棄置一張牌，然後：令一名手牌數大於你的角色交給你一張牌；或令一名裝備區裡牌數大於你的角色棄置一張裝備牌。',
+    canUse(g, p) {
+      return !(p.turnFlags && p.turnFlags['飛軍']) && (p.hand.length + equipCount(p)) > 0;
+    },
+    async active(g, p) {
+      if (p.turnFlags['飛軍']) return;
+      const pool = [...p.hand, ...equipSlots.map(s => p.equips[s]).filter(Boolean)];
+      const c = await g.askCard(p, { prompt: '【飛軍】棄置一張牌', pool });
+      if (!c) return;
+      const t = await g.askTargets(p, {
+        prompt: '【飛軍】選擇一名角色',
+        min: 1, max: 1,
+        filter: q => q.alive && q !== p && (q.hand.length > p.hand.length || equipCount(q) > equipCount(p)),
+      });
+      if (!t || !t.length) return;
+      const tgt = t[0];
+      p.turnFlags['飛軍'] = true;
+      p.feiJunTargets = p.feiJunTargets || [];
+      const fresh = !p.feiJunTargets.includes(tgt.id);
+      p.feiJunTargets.push(tgt.id);
+      if (c.slot && p.equips[c.slot] === c) { p.equips[c.slot] = null; g.onEquipChange && g.onEquipChange(p); g.toDiscard([c]); }
+      else g.consumeCards(p, [c], '飛軍');
+      if (tgt.hand.length > p.hand.length) {
+        const give = tgt.hand[Math.floor(Math.random() * tgt.hand.length)];
+        const i2 = tgt.hand.indexOf(give);
+        if (i2 >= 0) tgt.hand.splice(i2, 1);
+        p.hand.push(give);
+        g.log(`${g.nameOf(p)} 發動【飛軍】令 ${g.nameOf(tgt)} 交給他一張牌`, 'skill');
+      } else if (equipCount(tgt) > equipCount(p)) {
+        const eqs = equipSlots.map(s => tgt.equips[s]).filter(Boolean);
+        if (eqs.length) {
+          const eq = eqs[0];
+          tgt.equips[eq.slot] = null;
+          g.onEquipChange && g.onEquipChange(tgt);
+          g.toDiscard([eq]);
+          g.log(`${g.nameOf(p)} 發動【飛軍】令 ${g.nameOf(tgt)} 棄置裝備 ${C.cardText(eq)}`, 'skill');
+        }
+      }
+      if (fresh && p.skills.includes('兵略')) {
+        g.drawCards(p, 2);
+        g.log(`【兵略】目標與之前不同，${g.nameOf(p)} 摸兩張牌`, 'skill');
+      }
+      g.update();
+    },
+  };
+
+  SK['兵略'] = {
+    type: 'locked',
+    desc: '鎖定技，當你發動「飛軍」時，若目標與你之前指定的目標均不相同，則你摸兩張牌。',
+  };
+
+  /* ── 集智（標準版）：使用錦囊時亮牌堆頂 ───────────────────── */
+  SK['集智（標）'] = {
+    type: 'trigger',
+    desc: '當你使用一張錦囊牌時，你可以展示牌堆頂牌，若該牌為基本牌，將之置入棄牌堆或使用一張手牌與之交換；若不為基本牌，則將之收入手牌。',
+    events: {
+      async cardUsed(g, ctx, p) {
+        if (ctx.player !== p) return;
+        const cd = ctx.card;
+        if (!cd || cd.type !== 'trick') return;
+        const yes = await g.askSkill(p, '集智（標）');
+        if (!yes) return;
+        const top = g.peekDeck(1)[0];
+        if (!top) return;
+        g.log(`【集智】亮出牌堆頂：${C.cardText(top)}`, 'skill');
+        if (top.type === 'basic') {
+          const ch = await g.ask(p, {
+            kind: 'choice', prompt: `【集智】牌堆頂是基本牌 ${C.cardText(top)}`,
+            options: ['置入棄牌堆', '與一張手牌交換'], cancelable: true,
+          });
+          if (ch === 1 && p.hand.length) {
+            const own = await g.askCard(p, { prompt: '【集智】選擇要放到牌堆頂的手牌', pool: p.hand.slice() });
+            if (own) {
+              const i = p.hand.indexOf(own);
+              if (i >= 0) p.hand.splice(i, 1);
+              p.hand.push(top);
+              g.putOnDeckTop([own]);
+            }
+          } else if (ch === 0) {
+            g.toDiscard(g.drawFromDeck(1));
+          }
+        } else {
+          const got = g.drawFromDeck(1);
+          if (got.length) p.hand.push(got[0]);
+        }
+        g.update();
+      },
+    },
+  };
+
+  /* ── 集智（界限突破）：使用普通錦囊摸一張 ─────────────────── */
+  SK['集智（界）'] = {
+    type: 'trigger',
+    desc: '當你使用普通錦囊牌時，你可以摸一張牌。若此牌是基本牌，你可以棄置此牌令本回合手牌上限+1。',
+    events: {
+      async cardUsed(g, ctx, p) {
+        if (ctx.player !== p) return;
+        const cd = ctx.card;
+        if (!cd || cd.type !== 'trick' || cd.delay) return;
+        const yes = await g.askSkill(p, '集智（界）');
+        if (!yes) return;
+        const got = g.drawCards(p, 1);
+        const c0 = got[0];
+        if (c0 && c0.type === 'basic') {
+          const ch = await g.ask(p, {
+            kind: 'choice', prompt: `【集智】摸到基本牌 ${C.cardText(c0)}，是否棄置以令本回合手牌上限 +1？`,
+            options: ['棄置並 +1', '保留'], cancelable: true,
+          });
+          if (ch === 0 && p.hand.includes(c0)) {
+            g.consumeCards(p, [c0], '集智');
+            p.turnFlags.handLimitX = (p.turnFlags.handLimitX || 0) + 1;
+            g.log(`${g.nameOf(p)} 【集智】棄置 ${C.cardText(c0)}，本回合手牌上限 +1`, 'skill');
+          }
+        }
+      },
+    },
+  };
+
+  /* ── 明任：開局摸一張並存一張為「任」，結束階段可替換 ───────── */
+  SK['明任'] = {
+    type: 'trigger',
+    desc: '遊戲開始時，你摸一張牌，然後將你的一張手牌置於你的武將牌上，稱為「任」。結束階段，你可以用手牌替換「任」。',
+    events: {
+      async gameStart(g, ctx, p) {
+        g.drawCards(p, 1);
+        if (!p.hand.length) return;
+        const c = await g.askCard(p, { prompt: '【明任】選擇一張手牌置於武將牌上（稱為「任」）', pool: p.hand.slice() });
+        if (!c) return;
+        const i = p.hand.indexOf(c);
+        if (i >= 0) p.hand.splice(i, 1);
+        p.ren = c;
+        g.log(`${g.nameOf(p)} 【明任】：將 ${C.cardText(c)} 置於武將牌上`, 'skill');
+      },
+      async turnEnd(g, ctx, p) {
+        if (ctx.player !== p || !p.ren) return;
+        const yes = await g.askSkill(p, '明任', '【明任】是否用手牌替換「任」？');
+        if (!yes || !p.hand.length) return;
+        const c = await g.askCard(p, { prompt: '【明任】選擇一張手牌替換「任」', pool: p.hand.slice() });
+        if (!c) return;
+        const i = p.hand.indexOf(c);
+        if (i >= 0) p.hand.splice(i, 1);
+        const old = p.ren;
+        p.ren = c;
+        p.hand.push(old);
+        g.log(`${g.nameOf(p)} 【明任】：以 ${C.cardText(c)} 替換「任」，取回 ${C.cardText(old)}`, 'skill');
+      },
+    },
+  };
+
+  /* ── 再起：棄牌階段結束，令至多 X 名角色選擇摸牌或讓你回復 ───── */
+  SK['再起'] = {
+    type: 'trigger',
+    desc: '棄牌階段結束時，你可以令至多X名角色各選擇一項（X為本回合內放入棄牌堆的紅色牌數量）：1.摸一張牌；2.令你回復1點體力。',
+    events: {
+      async discardPhaseEnd(g, ctx, p) {
+        const x = Math.min(g.turnRedCount || 0, g.alive().length);
+        if (x <= 0) return;
+        const yes = await g.askSkill(p, '再起', `【再起】令至多 ${x} 名角色選擇摸一張或讓你回復 1 點體力？`);
+        if (!yes) return;
+        const list = [];
+        for (let k = 0; k < x; k++) {
+          const t = await g.askTargets(p, { prompt: `【再起】選擇第 ${k + 1} 名角色（可跳過）`, min: 1, max: 1, cancelable: true });
+          if (!t || !t.length) break;
+          list.push(t[0]);
+        }
+        for (const q of list) {
+          const ch = await g.ask(q, {
+            kind: 'choice', prompt: '【再起】選擇一項', options: ['摸一張牌', `令 ${g.nameOf(p)} 回復 1 點體力`], cancelable: false,
+          });
+          if (ch === 0) g.drawCards(q, 1);
+          else await g.heal(p, 1, '再起');
+        }
+        if (list.length) g.log(`${g.nameOf(p)} 發動【再起】（X＝${x}）`, 'skill');
+        g.update();
+      },
+    },
+  };
+
+  const DONE4 = ['決堰', '破勢', '蹈刃', '飛軍', '兵略', '集智（標）', '集智（界）', '明任', '再起'];
+  for (const n of DONE4) if (SK[n]) { delete SK[n].todo; SK[n].impl = true; }
+  root.SGS_SKILLS_DONE = (root.SGS_SKILLS_DONE || []).concat(DONE4);
+
   const DONE = ['血裔', '據守', '狂骨', '破虜', '烈弓', '直諫', '固政', '英魂'];
   for (const n of DONE) if (SK[n]) { delete SK[n].todo; SK[n].impl = true; }
   root.SGS_SKILLS_DONE = (root.SGS_SKILLS_DONE || []).concat(DONE);
