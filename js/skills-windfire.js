@@ -269,6 +269,123 @@
   for (const n of DONE2) if (SK[n]) { delete SK[n].todo; SK[n].impl = true; }
   root.SGS_SKILLS_DONE = (root.SGS_SKILLS_DONE || []).concat(DONE2);
 
+
+  /* ═══════════ 第三批 ═══════════ */
+
+  /* ── 八陣（諸葛亮）：鎖定技，無防具時視為裝備【八卦陣】 */
+  SK['八陣'] = {
+    type: 'locked',
+    desc: '鎖定技，若你的裝備區裡沒有防具牌，你視為裝備著【八卦陣】。',
+  };
+
+  /* ── 滅殺：鎖定技，對體力值為 1 的角色傷害 +1（引擎 damage 內處理） */
+  SK['滅殺'] = {
+    type: 'locked',
+    desc: '鎖定技，你對體力值為1的其他角色造成的傷害+1。',
+  };
+
+  /* ── 禍首：南蠻入侵對你無效，且傷害來源改為你 ───────────────── */
+  SK['禍首'] = {
+    type: 'locked',
+    desc: '鎖定技，【南蠻入侵】對你無效；其他角色使用【南蠻入侵】指定目標後，你代替其成為此牌造成傷害的來源。',
+    cannotBeTargeted(g, p, src, cardName) {
+      return cardName === '南蠻入侵';
+    },
+  };
+
+  /* ── 謙節：不能被橫置、不能成為延時錦囊目標 ───────────────── */
+  SK['謙節'] = {
+    type: 'locked',
+    desc: '鎖定技，你不能被橫置，且不能成為延時類錦囊牌或其他角色拼點的目標。',
+    cannotBeTargeted(g, p, src, cardName) {
+      return cardName === '樂不思蜀' || cardName === '兵糧寸斷' || cardName === '閃電';
+    },
+  };
+
+  /* ── 父蔭：每回合第一次成為【殺】的目標，手牌≤對方則此牌無效 ── */
+  SK['父蔭'] = {
+    type: 'locked',
+    desc: '鎖定技，你每回合第一次成為【殺】或【決鬥】的目標後，若你的手牌數不大於該角色，此牌對你無效。',
+    events: {
+      async shaTargeted(g, ctx, p) {
+        if (ctx.target !== p || ctx.source === p) return;
+        if (p.turnFlags && p.turnFlags.fuyin) return;
+        if (p.hand.length > ctx.source.hand.length) return;
+        p.turnFlags.fuyin = true;
+        ctx.noEffect = true;
+        ctx.effectSkill = '父蔭';
+      },
+    },
+  };
+
+  /* ── 奮激：每名角色結束階段，若其沒有手牌，可令其摸兩張、你失去 1 點體力 ── */
+  SK['奮激'] = {
+    type: 'trigger',
+    desc: '每名角色的結束階段，若其沒有手牌，你可以令其摸兩張牌，然後你失去1點體力。',
+    events: {
+      async turnEnd(g, ctx, p) {
+        const q = ctx.player;
+        if (!q || !q.alive || q.hand.length !== 0) return;
+        if (!p.alive || p.hp <= 1) return;
+        const ai = p.controller;
+        if (q !== p && ai && typeof ai.isFriend === 'function' && !ai.isFriend(g, p, q)) return;
+        const yes = await g.askSkill(p, '奮激', `【奮激】${g.nameOf(q)} 沒有手牌，是否令其摸兩張？（你失去 1 點體力）`);
+        if (!yes) return;
+        g.drawCards(q, 2);
+        await g.loseHp(p, 1, '奮激');
+        g.log(`${g.nameOf(p)} 發動【奮激】：${g.nameOf(q)} 摸兩張牌`, 'skill');
+      },
+    },
+  };
+
+  /* ── 奇謀：限定技，失去任意點體力 → 距離-X、可多使用 X 張【殺】 ── */
+  SK['奇謀'] = {
+    type: 'limited',
+    desc: '限定技，出牌階段，你可以失去任意點體力，然後本回合你計算與其他角色的距離-X，且你可以多使用X張【殺】（X為你失去的體力值）。',
+    canUse(g, p) {
+      return !p.usedQimou && p.hp > 1 && p.phase === 'play';
+    },
+    async active(g, p) {
+      if (p.usedQimou) return;
+      const maxX = Math.max(0, p.hp - 1);
+      if (maxX <= 0) return;
+      const choices = [];
+      for (let i = 1; i <= Math.min(maxX, 3); i++) choices.push(`失去 ${i} 點體力`);
+      const idx = await g.ask(p, { kind: 'choice', prompt: '【奇謀】失去幾點體力？', options: choices, cancelable: true });
+      if (idx === null || idx === undefined) return;
+      const x = idx + 1;
+      p.usedQimou = true;
+      p.turnFlags.distX = (p.turnFlags.distX || 0) + x;
+      p.turnFlags.extraSha = (p.turnFlags.extraSha || 0) + x;
+      await g.loseHp(p, x, '奇謀');
+      g.log(`${g.nameOf(p)} 發動【奇謀】：失去 ${x} 點體力，本回合距離 -${x}、可多使用 ${x} 張【殺】`, 'skill');
+      g.update();
+    },
+  };
+
+  /* ── 懷柔：出牌階段，你可以重鑄裝備牌 ─────────────────────── */
+  SK['懷柔'] = {
+    type: 'active',
+    desc: '出牌階段，你可以重鑄一張裝備牌（棄置之，然後摸一張牌）。',
+    canUse(g, p) { return p.hand.some(c => !!c.slot); },
+    async active(g, p) {
+      const eq = p.hand.filter(c => !!c.slot);
+      if (!eq.length) return;
+      const c = await g.askCard(p, { prompt: '【懷柔】選擇要重鑄的裝備牌', pool: eq });
+      if (!c) return;
+      const i = p.hand.indexOf(c);
+      if (i >= 0) p.hand.splice(i, 1);
+      g.toDiscard([c]);
+      g.drawCards(p, 1);
+      g.log(`${g.nameOf(p)} 發動【懷柔】重鑄 ${C.cardText(c)}，摸一張牌`, 'skill');
+      g.update();
+    },
+  };
+
+  const DONE3 = ['八陣', '滅殺', '禍首', '謙節', '父蔭', '奮激', '奇謀', '懷柔'];
+  for (const n of DONE3) if (SK[n]) { delete SK[n].todo; SK[n].impl = true; }
+  root.SGS_SKILLS_DONE = (root.SGS_SKILLS_DONE || []).concat(DONE3);
+
   const DONE = ['血裔', '據守', '狂骨', '破虜', '烈弓', '直諫', '固政', '英魂'];
   for (const n of DONE) if (SK[n]) { delete SK[n].todo; SK[n].impl = true; }
   root.SGS_SKILLS_DONE = (root.SGS_SKILLS_DONE || []).concat(DONE);

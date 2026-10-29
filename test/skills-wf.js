@@ -194,6 +194,104 @@ function mk(a, b) {
     check(p.buqu[0] === top, '不屈：取的是牌堆頂那張');
   }
 
+
+  /* 13. 八陣：沒有防具時視為裝備八卦陣 */
+  {
+    const g = mk('龐統');
+    const p = g.players[0];
+    p.skills = ['八陣'];
+    check(g.armorOf(p) && g.armorOf(p).name === '八卦陣', '八陣：視為裝備【八卦陣】');
+    const armor = CARDS.buildDeck(['std']).find(c => c.slot === 'armor');
+    p.hand.push(armor); g.equipCard(p, armor);
+    check(g.armorOf(p) === armor, '八陣：有真防具時用真防具');
+  }
+
+  /* 14. 滅殺：對體力 1 的角色傷害 +1 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['滅殺'];
+    t.maxHp = 4; t.hp = 1;
+    const dealt = await g.damage(p, t, 1, 'normal', null);
+    check(dealt === 2, `滅殺：對體力 1 的目標 1 點傷害變 2 點（實際 ${dealt}）`);
+  }
+
+  /* 15. 禍首：南蠻入侵傷害來源轉為禍首、且自己不受南蠻影響 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['禍首'];
+    check(g.canBeTargeted(t, p, '南蠻入侵') === false, '禍首：【南蠻入侵】對你無效');
+    const nanman = CARDS.buildDeck(['std']).find(c => c.name === '南蠻入侵');
+    g.emitLog = [];
+    await g.damage(t, t, 1, 'normal', nanman);
+    check(p.hostility && Object.keys(p.hostility).length >= 0, '禍首：傷害流程未報錯');
+  }
+
+  /* 16. 父蔭：每回合第一次成為【殺】目標，手牌不多於對方 → 此殺無效 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    t.skills = ['父蔭'];
+    t.hand.length = 0; t.hand.push(...CARDS.buildDeck(['std']).slice(0, 1));
+    p.hand.length = 0; p.hand.push(...CARDS.buildDeck(['std']).slice(0, 3));
+    const sha = CARDS.buildDeck(['std']).find(c => c.name === '殺');
+    const hpBefore = t.hp;
+    t.turnFlags = {};
+    await g.useShaOn(p, t, sha);
+    check(t.hp === hpBefore, '父蔭：此【殺】對目標無效');
+  }
+
+  /* 17. 奮激：目標沒有手牌 → 摸 2 張，自己失去 1 點體力 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['奮激'];
+    p.hp = 3; p.maxHp = 4;
+    p.hand.length = 0;                  // 自己結束階段時沒有手牌
+    g.askSkill = async () => true;
+    await g.trigger('turnEnd', { player: p });
+    check(p.hand.length === 2, `奮激：自己摸 2 張（實際 ${p.hand.length}）`);
+    check(p.hp === 2, `奮激：失去 1 點體力（實際 ${p.hp}）`);
+  }
+
+  /* 18. 奇謀：失去 2 點體力 → 距離 -2、可多出 2 張殺 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0];
+    p.skills = ['奇謀'];
+    p.maxHp = 4; p.hp = 3;
+    g.ask = async () => 1;              // 選「失去 2 點體力」
+    const baseLimit = g.shaLimit(p), baseDist = g.distance(p, g.players[1]);
+    await root.SGS_SKILLS['奇謀'].active(g, p);
+    check(p.hp === 1, `奇謀：失去 2 點體力（實際 ${p.hp}）`);
+    check(g.shaLimit(p) === baseLimit + 2, `奇謀：出殺次數 ${baseLimit} → ${g.shaLimit(p)}`);
+    check(g.distance(p, g.players[1]) === Math.max(1, baseDist - 2), `奇謀：距離 ${baseDist} → ${g.distance(p, g.players[1])}`);
+    check(p.usedQimou === true, '奇謀：限定技已用');
+  }
+
+  /* 19. 謙節：不能成為延時錦囊的目標 */
+  {
+    const g = mk('魏延');
+    const p = g.players[1];
+    p.skills = ['謙節'];
+    check(g.canBeTargeted(g.players[0], p, '樂不思蜀') === false, '謙節：不能被【樂不思蜀】指定');
+    check(g.canBeTargeted(g.players[0], p, '殺') === true, '謙節：仍可被【殺】指定');
+  }
+
+  /* 20. 懷柔：重鑄裝備牌 → 棄一張摸一張 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0];
+    p.skills = ['懷柔'];
+    const wpn = CARDS.buildDeck(['std']).find(c => c.name === '青釭劍');
+    p.hand.length = 0; p.hand.push(wpn);
+    g.askCard = async (who, opt) => (opt.pool || [])[0] || null;
+    await root.SGS_SKILLS['懷柔'].active(g, p);
+    check(!p.hand.includes(wpn) && g.discardPile.includes(wpn), '懷柔：裝備已進棄牌堆');
+    check(p.hand.length === 1, `懷柔：摸一張（實際 ${p.hand.length}）`);
+  }
+
   console.log(fails === 0 ? '\n全部通過' : `\n${fails} 項失敗`);
   process.exit(fails ? 1 : 0);
 })();

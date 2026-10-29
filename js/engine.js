@@ -146,7 +146,16 @@
       let d = Math.abs(ia - ib);
       return Math.min(d, n - d);
     }
-    armorOf(p) { return p.armorOff ? null : p.equips.armor; }
+    armorOf(p) {
+      if (p.armorOff) return null;
+      if (p.equips.armor) return p.equips.armor;
+      // 八陣（鎖定技）：裝備區沒有防具時視為裝備【八卦陣】
+      if (p.skills && p.skills.includes('八陣') && !this.isSilenced(p, '八陣')) {
+        if (!this._baguaVirtual) this._baguaVirtual = { name: '八卦陣', slot: 'armor', virtual: true, id: 'v八陣' };
+        return this._baguaVirtual;
+      }
+      return null;
+    }
 
     distance(a, b) {
       if (a === b) return 0;
@@ -154,6 +163,7 @@
       d += a.equips['horse-'] ? -1 : 0;   // 自己 -1 馬
       d += b.equips['horse+'] ? 1 : 0;    // 對方 +1 馬
       d += (a.modDistance ? a.modDistance(b) : 0);
+      d -= (a.turnFlags && a.turnFlags.distX ? a.turnFlags.distX : 0);
       d += (b.modDefenseDistance ? b.modDefenseDistance(a) : 0);
       d = Math.max(1, d);
       return d;
@@ -389,6 +399,19 @@
       let amt = ctx.amount;
       // 藤甲：火焰傷害 +1
       if (nature === 'fire' && this.armorOf(target) && this.armorOf(target).name === '藤甲') amt += 1;
+      // 滅殺（鎖定技）：對體力值為 1 的角色傷害 +1
+      if (source && source.skills && source.skills.includes('滅殺') && target.hp === 1) {
+        amt += 1;
+        this.log(`【滅殺】對體力 1 的 ${this.nameOf(target)} 傷害 +1`, 'skill');
+      }
+      // 禍首（鎖定技）：南蠻入侵造成的傷害由禍首代為來源
+      if (card && card.name === '南蠻入侵') {
+        const huo = this.alive().find(q => q.skills && q.skills.includes('禍首') && !this.isSilenced(q, '禍首'));
+        if (huo && huo !== target) {
+          source = huo;
+          this.log(`【禍首】：傷害來源轉為 ${this.nameOf(huo)}`, 'skill');
+        }
+      }
       // 狂風：受到火焰傷害 +1
       if (nature === 'fire' && target.qingFengBy) {
         amt += 1;
@@ -806,6 +829,7 @@
       let lim = 1;
       if (p.equips.weapon && p.equips.weapon.name === '諸葛連弩') lim = 99;
       if (p.turnFlags && p.turnFlags.noShaLimit) lim = 99;
+      if (p.turnFlags && p.turnFlags.extraSha) lim += p.turnFlags.extraSha;
       if (p.modShaLimit) lim = p.modShaLimit(lim);
       return lim;
     }
@@ -1314,6 +1338,7 @@
       await this.trigger('shaTargeted', tctx);
       target = tctx.target || target;
       if (!target || !target.alive || this.over) return;
+      if (tctx.noEffect) { this.log(`【${tctx.effectSkill || '技能'}】令此【殺】對 ${this.nameOf(target)} 無效`, 'skill'); return; }
       if (!this.canBeTargeted(source, target, '殺', card)) { this.log(`${this.nameOf(target)} 不受此【殺】影響`); return; }
       if (this.armorBlocks(target, card, '殺')) {
         this.log(`${this.nameOf(target)} 的防具使【殺】無效`);

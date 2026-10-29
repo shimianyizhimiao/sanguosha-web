@@ -13,6 +13,7 @@ const allIds = g => {
     for (const k of Object.keys(p.equips)) if (p.equips[k]) out.push(p.equips[k].id);
     out.push(...p.judge.map(c => c.id));
     out.push(...(p.stars||[]).map(c => c.id));
+    out.push(...(p.buqu||[]).map(c => c.id));   // 不屈牌扣在武將牌上
   }
   out.push(...g.deck.map(c => c.id));
   out.push(...g.discardPile.map(c => c.id));
