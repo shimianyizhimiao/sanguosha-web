@@ -739,7 +739,7 @@
         for (const c of cards) { p.hand.splice(p.hand.indexOf(c), 1); }
         this.toDiscard(cards);
         if (cards.length) this.log(`${this.nameOf(p)} 棄置了 ${cards.length} 張牌`);
-        if (cards.length) await this.trigger('discardPhaseEnd', { player: p, count: cards.length });
+        if (cards.length) await this.trigger('discardPhaseEnd', { player: p, count: cards.length, cards });
       }
     }
 

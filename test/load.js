@@ -3,7 +3,7 @@ const fs = require('fs');
 const vm = require('vm');
 const path = require('path');
 
-const FILES = ['cards.js', 'engine.js', 'generals.js', 'generals-extra.js', 'generals-packs.js', 'ai.js', 'setup.js'];
+const FILES = ['cards.js', 'engine.js', 'generals.js', 'generals-extra.js', 'generals-packs.js', 'skills-windfire.js', 'ai.js', 'setup.js'];
 
 function load() {
   for (const f of FILES) {
