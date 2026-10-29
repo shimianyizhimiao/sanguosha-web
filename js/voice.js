@@ -37,7 +37,7 @@
     /* 有索引就照索引挑檔（只請求真的存在的檔案），沒有就退回舊命名規則 */
     picks(name, kind, n) {
       this.loadIndex();
-      if (!this.index) return null;
+      if (!this.index) return [];      // 索引還沒到／線上版沒有索引：直接當作沒語音，不要亂猜檔名造成 404
       const files = this.index[name] || this.index[this.base(name)];
       if (!files) return [];
       if (kind === 'dead') return files.filter(f => /dead/.test(f)).sort();
