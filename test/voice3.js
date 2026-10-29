@@ -31,7 +31,8 @@ class CDP {
   // 全 AI、最快速度、標將+界將（有語音的武將多）
   await cdp.eval(`(() => {
     const btns=[...document.querySelectorAll('#gpackOpts .opt')];
-    btns.forEach(b=>{ if(!b.textContent.includes('界將')) b.click(); });
+    const keep = ['標將', '界將', '神將'];
+    btns.forEach(b=>{ if(!keep.some(k=>b.textContent.includes(k))) b.click(); });
     window.__sgsUI.cfg.speed = 0;
     return window.__sgsUI.cfg.generalPacks.join(',');
   })()`);
@@ -39,21 +40,35 @@ class CDP {
   await sleep(700);
   // 玩家選將 → 之後全 AI 打
   await cdp.eval(`document.querySelectorAll('.gcard')[0].click()`);
+  await cdp.eval(`(() => {
+    const g = window.__sgsUI.game;
+    if (g && window.SGS_AI) g.players[0].controller = new window.SGS_AI.AIController(null, 0);
+    return !!g;
+  })()`);
   // 自動代打：一直點畫面上可用的按鈕（結束回合／確認／出牌），讓對局真的跑起來
   await cdp.eval(`(() => {
     window.__auto = setInterval(() => {
-      const btns = [...document.querySelectorAll('#actions button, #prompt button, #hand .card, #pick button, button')]
-        .filter(b => b.offsetParent !== null && !b.disabled && !/音樂|BGM|日誌|音效|速度/.test(b.textContent));
-      if (btns.length) btns[Math.floor(Math.random() * btns.length)].click();
-    }, 220);
+      const vis = q => [...document.querySelectorAll(q)].filter(b => b.offsetParent !== null && !b.disabled);
+      const pick = (arr) => { if (arr.length) arr[0].click(); return arr.length; };
+      if (pick(vis('#actions button'))) return;
+      if (pick(vis('#prompt button'))) return;
+      const cards = vis('#hand .card');
+      if (cards.length) { cards[0].click(); return; }
+      const any = vis('button').filter(b => !/音樂|BGM|日誌|音效|速度|技能/.test(b.textContent));
+      if (any.length) any[0].click();
+    }, 200);
     return true;
   })()`);
-  await sleep(20000);
+  await sleep(28000);
   const voice = cdp.ev.filter(m => m.method === 'Network.requestWillBeSent' && /assets\/voice\//.test(m.params.request.url));
   const states = cdp.ev.filter(m => m.method === 'Network.loadingFinished');
   const ok = cdp.ev.filter(m => m.method === 'Network.responseReceived' && /assets\/voice\//.test(m.params.response.url) && m.params.response.status === 200);
   const gens = await cdp.eval(`window.__sgsUI.game ? window.__sgsUI.game.players.map(p=>p.generals.map(g=>g.name).join('&')).join(' | ') : '無'`);
   console.log('對局武將:', gens);
+  const st = await cdp.eval(`({turn: window.__sgsUI.game ? window.__sgsUI.game.turn : -1,
+    logs: document.querySelectorAll('#log .l').length,
+    over: !document.querySelector('#result').classList.contains('hidden')})`);
+  console.log('狀態:', JSON.stringify(st));
   const logs = await cdp.eval(`[...document.querySelectorAll('#log .l.skill')].map(x=>x.textContent).slice(0,6)`);
   console.log('技能日誌樣本：', JSON.stringify(logs));
   console.log('語音請求', voice.length, '｜200 成功', ok.length);

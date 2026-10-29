@@ -12,6 +12,8 @@
     miss: {},         // url -> true（404 記住，不再重試）
     last: 0,
     volume: 0.85,
+    index: null,        // assets/voice/index.json：{武將名: [檔名…]}
+    indexTried: false,
 
     base(n) { return String(n).replace(/^(界|神|SP)/, '').replace(/·.*$/, ''); },
 
@@ -21,6 +23,35 @@
       if (b !== name) list.push('assets/voice/' + name + '/' + key + '.mp3');
       list.push('assets/voice/' + b + '/' + key + '.mp3');
       return list;
+    },
+
+    loadIndex() {
+      if (this.indexTried) return;
+      this.indexTried = true;
+      if (typeof fetch !== 'function') return;
+      fetch('assets/voice/index.json').then(r => r.ok ? r.json() : null)
+        .then(j => { this.index = j || {}; })
+        .catch(() => { this.index = {}; });
+    },
+
+    /* 有索引就照索引挑檔（只請求真的存在的檔案），沒有就退回舊命名規則 */
+    picks(name, kind, n) {
+      this.loadIndex();
+      if (!this.index) return null;
+      const files = this.index[name] || this.index[this.base(name)];
+      if (!files) return [];
+      if (kind === 'dead') return files.filter(f => /dead/.test(f)).sort();
+      if (!/^skill\d$/.test(kind)) return [];
+      const idx = kind.slice(5);
+      const re = new RegExp('^(\\d)skill' + idx + '_(\\d)\\.mp3$');
+      const hit = files.map(f => [f, re.exec(f)]).filter(x => x[1]);
+      const want = String(n || 1);
+      hit.sort((a, b) => {
+        const [, ma] = a, [, mb] = b;
+        const sc = m => (m[1] === '1' ? 0 : 10) + (m[2] === want ? 0 : m[2] === '1' ? 1 : 2);
+        return sc(ma) - sc(mb);
+      });
+      return hit.map(x => x[0]);
     },
 
     get(url) {
@@ -41,7 +72,22 @@
       if (this.muted || !name) return false;
       const now = performance.now();
       if (now - this.last < 180) return false;      // 避免同時多句疊在一起
+      const idxed = this.picks(name, kind, n);
       let keys;
+      if (idxed && idxed.length) {
+        for (const f of idxed) {
+          const a = this.get('assets/voice/' + (this.index[name] ? name : this.base(name)) + '/' + f);
+          if (!a) continue;
+          try {
+            a.currentTime = 0;
+            const p2 = a.play();
+            if (p2 && p2.catch) p2.catch(() => {});
+            this.last = now;
+            return true;
+          } catch (e) { /* 下一條 */ }
+        }
+      }
+      if (idxed) return false;        // 有索引且明確沒有這個檔，就不用再亂試
       if (kind === 'dead') keys = ['1dead01', '2dead01'];
       else if (/^skill\d$/.test(kind)) {
         const idx = parseInt(kind.slice(5), 10);
