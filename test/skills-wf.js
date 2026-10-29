@@ -516,6 +516,122 @@ function mk(a, b) {
     check(p.hand.length === before + 1, '築圍：牌進入手牌');
   }
 
+
+  /* 36. 強襲：失去 1 點體力 → 造成 1 點傷害 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['強襲'];
+    p.hp = 4; p.maxHp = 4;
+    g.ask = async () => 0;                       // 選「失去 1 點體力」
+    g.askTargets = async () => [t];
+    const hp0 = p.hp, tt = t.hp;
+    await root.SGS_SKILLS['強襲'].active(g, p);
+    check(p.hp === hp0 - 1, `強襲：自己失去 1 點體力（${hp0} → ${p.hp}）`);
+    check(t.hp === tt - 1, `強襲：目標受到 1 點傷害（${tt} → ${t.hp}）`);
+  }
+
+  /* 37. 好施：摸牌階段多摸兩張，手牌 >5 時分一半出去 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['好施'];
+    p.hand.length = 0; p.hand.push(...CARDS.buildDeck(['std']).slice(0, 3));
+    t.hand.length = 0;
+    g.askSkill = async () => true;
+    g.askTargets = async () => [t];
+    await g.trigger('phaseStart', { player: p, phase: 'draw' });
+    // 3 + 2 = 5 → 不超過 5，不分牌
+    check(p.hand.length === 5, `好施：摸兩張（3 → ${p.hand.length}）`);
+    const g2 = mk('魏延');
+    const q = g2.players[0], q2 = g2.players[1];
+    q.skills = ['好施'];
+    q.hand.length = 0; q.hand.push(...CARDS.buildDeck(['std']).slice(0, 4));
+    q2.hand.length = 0;
+    g2.askSkill = async () => true;
+    g2.askTargets = async () => [q2];
+    await g2.trigger('phaseStart', { player: q, phase: 'draw' });
+    // 4 + 2 = 6 → 一半 3 張給對方
+    check(q.hand.length === 3 && q2.hand.length === 3, `好施：手牌 6 張分出 3 張（自己 ${q.hand.length}、對方 ${q2.hand.length}）`);
+  }
+
+  /* 38. 挑釁：目標不出【殺】就棄他一張牌 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['挑釁'];
+    t.hand.push(...CARDS.buildDeck(['std']).slice(0, 3));
+    g.askTargets = async () => [t];
+    g.askForCard = async () => null;
+    const th = t.hand.length;
+    await root.SGS_SKILLS['挑釁'].active(g, p);
+    check(t.hand.length === th - 1, `挑釁：目標沒出【殺】，棄他一張牌（${th} → ${t.hand.length}）`);
+    check(p.turnFlags['挑釁'] === true, '挑釁：本回合已使用');
+  }
+
+  /* 39. 觀星（標／界）：與觀星同一套實作、可執行 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0];
+    p.skills = ['觀星（界）'];
+    g.ask = async () => [];                      // 全部留頂
+    const before = g.deck.length;
+    await g.trigger('turnStart', { player: p });
+    check(g.deck.length === before, `觀星（界）：牌堆數量不變（${before}）`);
+    check(!!root.SGS_SKILLS['觀星（標）'].events.turnStart, '觀星（標）：有實作');
+  }
+
+  /* 40. 英姿（界）：手牌上限等於體力上限 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0];
+    p.skills = ['英姿（界）'];
+    p.maxHp = 4; p.hp = 3;
+    check(g.handLimit(p) === 4, `英姿（界）：手牌上限＝體力上限 4（實際 ${g.handLimit(p)}）`);
+    check(root.SGS_SKILLS['英姿（標）'].drawCount(g, p, 2) === 3, '英姿（標）：摸牌數 +1');
+  }
+
+  /* 41. 奇制：棄非目標一張牌，然後其摸一張 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['奇制'];
+    t.hand.push(...CARDS.buildDeck(['std']).slice(0, 3));
+    g.askSkill = async () => true;
+    g.askTargets = async () => [t];
+    const th = t.hand.length;
+    const trick = CARDS.buildDeck(['std']).find(c => c.type === 'trick');
+    await g.trigger('cardUsed', { player: p, card: trick, name: trick.name, targets: [p] });
+    check(t.hand.length === th, `奇制：棄一張摸一張，手牌數不變（${th}）`);
+    check(p.turnFlags.qizhi === 1, '奇制：次數計為 1');
+  }
+
+  /* 42. 進趨：結束階段摸兩張，再棄至奇制次數 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0];
+    p.skills = ['進趨'];
+    p.turnFlags.qizhi = 1;
+    p.hand.length = 0; p.hand.push(...CARDS.buildDeck(['std']).slice(0, 2));
+    g.askSkill = async () => true;
+    g.askCards = async (who, opt) => (who.hand || []).slice(0, opt.min || 0);
+    await g.trigger('turnEnd', { player: p });
+    check(p.hand.length === 1, `進趨：摸兩張後棄至 1 張（實際 ${p.hand.length}）`);
+  }
+
+  /* 43. 潰誅：X＝棄牌數，令角色各摸一張 */
+  {
+    const g = mk('魏延');
+    const p = g.players[0], t = g.players[1];
+    p.skills = ['潰誅'];
+    g.askSkill = async () => true;
+    g.ask = async () => 0;                       // 選「令角色摸牌」
+    g.askTargets = async () => [t];
+    const th = t.hand.length;
+    await g.trigger('discardPhaseEnd', { player: p, count: 1, cards: [] });
+    check(t.hand.length === th + 1, `潰誅：目標摸一張（${th} → ${t.hand.length}）`);
+  }
+
   console.log(fails === 0 ? '\n全部通過' : `\n${fails} 項失敗`);
   process.exit(fails ? 1 : 0);
 })();

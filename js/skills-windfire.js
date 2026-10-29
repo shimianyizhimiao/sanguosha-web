@@ -897,6 +897,221 @@
   for (const n of DONE5) if (SK[n]) { delete SK[n].todo; SK[n].impl = true; }
   root.SGS_SKILLS_DONE = (root.SGS_SKILLS_DONE || []).concat(DONE5);
 
+
+  /* ═══════════ 第六批 ═══════════ */
+
+  /* ── 強襲（太史慈→此版為群）：失體力或棄武器，對範圍內角色 1 傷害 ── */
+  SK['強襲'] = {
+    type: 'active',
+    desc: '出牌階段對每名角色各限一次，你可以失去1點體力或棄置一張武器牌，然後對攻擊範圍內的一名其他角色造成1點傷害。',
+    canUse(g, p) {
+      const canHp = p.hp > 1;
+      const canWpn = p.hand.some(c => c.name === '武器' || c.slot === 'weapon') || !!p.equips.weapon;
+      return (canHp || canWpn) && g.others(p).some(q => g.inAttackRange(p, q));
+    },
+    async active(g, p) {
+      const targets = g.others(p).filter(q => g.inAttackRange(p, q));
+      if (!targets.length) return;
+      const options = [];
+      if (p.hp > 1) options.push('失去 1 點體力');
+      if (p.equips.weapon || p.hand.some(c => c.slot === 'weapon')) options.push('棄置一張武器牌');
+      if (!options.length) return;
+      const ch = await g.ask(p, { kind: 'choice', prompt: '【強襲】選擇代價', options, cancelable: true });
+      if (ch === null || ch === undefined) return;
+      if (ch === 0 && p.hp > 1) {
+        await g.loseHp(p, 1, '強襲');
+      } else {
+        const wpns = [...p.hand.filter(c => c.slot === 'weapon'), p.equips.weapon].filter(Boolean);
+        if (!wpns.length) return;
+        const c = wpns[0];
+        if (p.equips.weapon === c) { p.equips.weapon = null; g.onEquipChange && g.onEquipChange(p); g.toDiscard([c]); }
+        else g.consumeCards(p, [c], '強襲');
+      }
+      const t = await g.askTargets(p, { prompt: '【強襲】選擇一名攻擊範圍內的角色', min: 1, max: 1, filter: q => q.alive && q !== p && g.inAttackRange(p, q) });
+      if (!t || !t.length) return;
+      g.log(`${g.nameOf(p)} 發動【強襲】`, 'skill');
+      await g.damage(p, t[0], 1, 'normal', null);
+    },
+  };
+
+  /* ── 好施：摸牌階段多摸兩張，手牌過多則分一半給最少的人 ─────── */
+  SK['好施'] = {
+    type: 'trigger',
+    desc: '摸牌階段，你可以多摸兩張牌，然後若你的手牌數大於5，則你將一半的手牌（向下取整）交給手牌最少的一名其他角色。',
+    events: {
+      async phaseStart(g, ctx, p) {
+        if (ctx.player !== p || ctx.phase !== 'draw') return;
+        const yes = await g.askSkill(p, '好施', '【好施】摸牌階段多摸兩張牌？');
+        if (!yes) return;
+        g.drawCards(p, 2);
+        if (p.hand.length <= 5) return;
+        const others = g.alive().filter(q => q !== p);
+        if (!others.length) return;
+        const least = Math.min(...others.map(q => q.hand.length));
+        const cands = others.filter(q => q.hand.length === least);
+        const t = await g.askTargets(p, { prompt: '【好施】選擇一名手牌最少的角色', min: 1, max: 1, candidates: cands });
+        const tgt = (t && t[0]) || cands[0];
+        const n = Math.floor(p.hand.length / 2);
+        const give = p.hand.slice(0, n);
+        for (const c of give) { const i = p.hand.indexOf(c); if (i >= 0) p.hand.splice(i, 1); }
+        tgt.hand.push(...give);
+        g.log(`${g.nameOf(p)} 發動【好施】，交給 ${g.nameOf(tgt)} ${n} 張手牌`, 'skill');
+      },
+    },
+  };
+
+  /* ── 挑釁：逼目標對你出【殺】，否則棄他一張牌 ─────────────── */
+  SK['挑釁'] = {
+    type: 'active',
+    desc: '出牌階段限一次，你可以選擇一名其他角色，然後除非該角色對你使用一張【殺】，否則你棄置其一張牌。',
+    canUse(g, p) { return !(p.turnFlags && p.turnFlags['挑釁']) && g.others(p).length > 0; },
+    async active(g, p) {
+      if (p.turnFlags['挑釁']) return;
+      const t = await g.askTargets(p, { prompt: '【挑釁】選擇一名其他角色', min: 1, max: 1 });
+      if (!t || !t.length) return;
+      const tgt = t[0];
+      p.turnFlags['挑釁'] = true;
+      const sha = C.buildDeck(['std']).find(c => c.name === '殺');
+      const r = await g.askForCard(tgt, '殺', {
+        prompt: `${g.nameOf(p)} 對你發動【挑釁】，是否使用一張【殺】？`, cancelable: true,
+      });
+      if (r && r.cards) {
+        g.consumeCards(tgt, r.cards, '殺');
+        g.log(`${g.nameOf(tgt)} 對 ${g.nameOf(p)} 使用【殺】（【挑釁】）`, 'skill');
+        await g.useShaOn(tgt, p, Object.assign({}, sha, { skill: '挑釁' }));
+      } else {
+        const pool = [...tgt.hand, ...equipSlots.map(sl => tgt.equips[sl]).filter(Boolean)];
+        if (!pool.length) return;
+        const c = pool[Math.floor(Math.random() * pool.length)];
+        if (c.slot && tgt.equips[c.slot] === c) { tgt.equips[c.slot] = null; g.onEquipChange && g.onEquipChange(tgt); g.toDiscard([c]); }
+        else g.consumeCards(tgt, [c], '挑釁');
+        g.log(`${g.nameOf(p)} 發動【挑釁】，棄置 ${g.nameOf(tgt)} 的一張牌`, 'skill');
+      }
+      g.update();
+    },
+  };
+
+  /* ── 觀星（標／界）：沿用既有觀星實作 ─────────────────────── */
+  const GUANXING = SK['觀星'];
+  if (GUANXING) {
+    SK['觀星（標）'] = Object.assign({}, GUANXING, {
+      desc: '準備階段，你可以觀看牌堆頂的X張牌（X為全場角色數且最多為5），然後以任意順序分配於牌堆頂或牌堆底。',
+    });
+    SK['觀星（界）'] = Object.assign({}, GUANXING, {
+      desc: '準備階段，你可以觀看牌堆頂的五張牌（若存活人數小於4則改為三張），然後將其中任意張牌置於牌堆頂，其餘置於牌堆底。',
+    });
+  }
+
+  /* ── 英姿（標／界）─────────────────────────────────────────── */
+  const YINGZI = SK['英姿'];
+  if (YINGZI) {
+    SK['英姿（標）'] = Object.assign({}, YINGZI, { desc: '摸牌階段，你可以多摸一張牌。' });
+    SK['英姿（界）'] = {
+      type: 'passive',
+      desc: '鎖定技，摸牌階段，你多摸一張牌；你的手牌上限等於你的體力上限。',
+      drawCount(g, p, n) { return n + 1; },
+      limitFor(g, owner, p) {
+        if (owner !== p) return 0;
+        return Math.max(0, p.maxHp - p.hp);
+      },
+    };
+  }
+
+  /* ── 奇制：用牌指定目標後，棄非目標的一張牌並讓其摸一張 ───── */
+  SK['奇制'] = {
+    type: 'trigger',
+    desc: '當你於回合內使用基本牌或錦囊牌指定目標後，你可以棄置不是此牌目標的一名角色的一張牌，然後其摸一張牌。',
+    events: {
+      async cardUsed(g, ctx, p) {
+        if (ctx.player !== p) return;
+        const cd = ctx.card;
+        if (!cd || (cd.type !== 'basic' && cd.type !== 'trick')) return;
+        const targets = ctx.targets || [];
+        const pool = g.alive().filter(q => q !== p && !targets.includes(q) &&
+          (q.hand.length + equipSlots.filter(sl => q.equips[sl]).length) > 0);
+        if (!pool.length) return;
+        const yes = await g.askSkill(p, '奇制');
+        if (!yes) return;
+        const t = await g.askTargets(p, { prompt: '【奇制】選擇一名非目標角色', min: 1, max: 1, candidates: pool });
+        if (!t || !t.length) return;
+        const tgt = t[0];
+        const all = [...tgt.hand, ...equipSlots.map(sl => tgt.equips[sl]).filter(Boolean)];
+        if (!all.length) return;
+        const c = all[Math.floor(Math.random() * all.length)];
+        if (c.slot && tgt.equips[c.slot] === c) { tgt.equips[c.slot] = null; g.onEquipChange && g.onEquipChange(tgt); g.toDiscard([c]); }
+        else g.consumeCards(tgt, [c], '奇制');
+        g.drawCards(tgt, 1);
+        p.turnFlags.qizhi = (p.turnFlags.qizhi || 0) + 1;
+        g.log(`${g.nameOf(p)} 發動【奇制】，棄置 ${g.nameOf(tgt)} 一張牌後其摸一張`, 'skill');
+      },
+    },
+  };
+
+  /* ── 進趨：結束階段摸兩張，棄至 X 張（X＝本回合奇制次數）──── */
+  SK['進趨'] = {
+    type: 'trigger',
+    desc: '結束階段，你可以摸兩張牌，然後將手牌棄置至X張（X為你於此回合內發動過「奇制」的次數）。',
+    events: {
+      async turnEnd(g, ctx, p) {
+        if (ctx.player !== p) return;
+        const yes = await g.askSkill(p, '進趨');
+        if (!yes) return;
+        g.drawCards(p, 2);
+        const x = p.turnFlags.qizhi || 0;
+        const over = p.hand.length - x;
+        if (over > 0) {
+          const cs = await g.askCards(p, { min: over, max: over, from: 'hand', prompt: `【進趨】棄置 ${over} 張手牌（保留 ${x} 張）` });
+          if (cs && cs.length) g.consumeCards(p, cs, '進趨');
+        }
+        g.log(`${g.nameOf(p)} 發動【進趨】：摸兩張，手牌整理至 ${x} 張`, 'skill');
+      },
+    },
+  };
+
+  /* ── 潰誅：依棄牌階段棄牌數，摸牌或造成傷害 ───────────────── */
+  SK['潰誅'] = {
+    type: 'trigger',
+    desc: '棄牌階段結束後，你可以選擇一項：1.令至多X名角色各摸一張牌；2.對任意名體力值之和為X的角色造成1點傷害，若多於一名角色，你受到1點傷害（X為你此階段棄置的牌數）。',
+    events: {
+      async discardPhaseEnd(g, ctx, p) {
+        if (ctx.player !== p) return;
+        const x = ctx.count || 0;
+        if (x <= 0) return;
+        const yes = await g.askSkill(p, '潰誅', `【潰誅】X＝${x}，是否發動？`);
+        if (!yes) return;
+        const mode = await g.ask(p, {
+          kind: 'choice', cancelable: true, prompt: '【潰誅】選擇一項',
+          options: [`令至多 ${x} 名角色各摸一張牌`, `對體力值之和為 ${x} 的角色造成 1 點傷害`],
+        });
+        if (mode === null || mode === undefined) return;
+        if (mode === 0) {
+          for (let k = 0; k < x; k++) {
+            const t = await g.askTargets(p, { prompt: `【潰誅】第 ${k + 1} 名角色（可跳過）`, min: 1, max: 1, cancelable: true });
+            if (!t || !t.length) break;
+            g.drawCards(t[0], 1);
+          }
+        } else {
+          const t = await g.askTargets(p, {
+            prompt: `【潰誅】選擇體力值之和不超過 ${x} 的角色`, min: 1, max: Math.min(x, 4),
+            filter: q => q.alive,
+          });
+          if (!t || !t.length) return;
+          let sum = 0;
+          const picked = [];
+          for (const q of t) { if (sum + q.hp > x) break; sum += q.hp; picked.push(q); }
+          for (const q of picked) await g.damage(p, q, 1, 'normal', null);
+          if (picked.length > 1) await g.damage(null, p, 1, 'normal', null);
+        }
+        g.log(`${g.nameOf(p)} 發動【潰誅】（X＝${x}）`, 'skill');
+        g.update();
+      },
+    },
+  };
+
+  const DONE6 = ['強襲', '好施', '挑釁', '觀星（標）', '觀星（界）', '英姿（標）', '英姿（界）', '奇制', '進趨', '潰誅'];
+  for (const n of DONE6) if (SK[n]) { delete SK[n].todo; SK[n].impl = true; }
+  root.SGS_SKILLS_DONE = (root.SGS_SKILLS_DONE || []).concat(DONE6);
+
   const DONE = ['血裔', '據守', '狂骨', '破虜', '烈弓', '直諫', '固政', '英魂'];
   for (const n of DONE) if (SK[n]) { delete SK[n].todo; SK[n].impl = true; }
   root.SGS_SKILLS_DONE = (root.SGS_SKILLS_DONE || []).concat(DONE);
