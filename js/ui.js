@@ -62,6 +62,7 @@
     mo.innerHTML = '';
     MODES.forEach(m => {
       const b = el('button', 'opt' + (cfg.mode === m.key ? ' on' : ''));
+      b.dataset.mode = m.key;
       b.innerHTML = `${m.label}<small>${m.sub}</small>`;
       b.onclick = () => { cfg.mode = m.key; cfg.nPlayers = m.key === 'id3' ? 3 : 5; buildLobby(); };
       mo.appendChild(b);
@@ -172,7 +173,10 @@
     }
     renderPick();
     $('#pickHint').textContent = `已選 ${pickState.picked.length} / ${pickState.need}`;
-    if (pickState.picked.length === pickState.need) setTimeout(() => startGame(), 180);
+    if (pickState.picked.length === pickState.need) {
+      const done = pickState.onDone;
+      setTimeout(() => { if (done) done(pickState.picked.slice()); else startGame(); }, 180);
+    }
   }
 
   /* ================= 開始對局 ================= */
@@ -190,7 +194,8 @@
     return ctrl;
   }
 
-  function startGame() {
+  function startGame(opts) {
+    opts = opts || {};
     $('#pick').classList.add('hidden');
     $('#lobby').classList.add('hidden');
     $('#table').classList.remove('hidden');
@@ -201,10 +206,13 @@
     const nP = cfg.mode === 'duel' ? 2 : (cfg.mode === 'id3' ? 3 : 5);
     cfg.nPlayers = nP;
 
-    const controllers = [];
-    for (let i = 0; i < nP; i++) {
-      const human = (cfg.mode === 'hotseat') || i === 0;
-      controllers.push(human ? makeHuman(i) : new AI.AIController(null, cfg.speed));
+    let controllers = opts.controllers;
+    if (!controllers) {
+      controllers = [];
+      for (let i = 0; i < nP; i++) {
+        const human = (cfg.mode === 'hotseat') || i === 0;
+        controllers.push(human ? makeHuman(i) : new AI.AIController(null, cfg.speed));
+      }
     }
 
     game = SETUP.makeGame({
@@ -213,12 +221,12 @@
       generalPacks: cfg.generalPacks,
       doubleGeneral: cfg.double,
       controllers,
-      forcedGenerals: [pickState.picked],
+      forcedGenerals: opts.forcedGenerals || (pickState ? [pickState.picked] : undefined),
       onLog: (entry) => appendLog(entry),
       onUpdate: () => scheduleRender(),
       onEvent: (type, data) => handleEvent(type, data),
     });
-    mySeat = 0;
+    mySeat = opts.seat != null ? opts.seat : 0;
     $('#phaseLabel').textContent = '';
     $('#promptLabel').textContent = '';
 
@@ -1166,8 +1174,85 @@
     buildLobby();
   };
 
+  /* ================= 連線對戰的介面鉤子 ================= */
+  const netAPI = {
+    get cfg() { return cfg; },
+    get game() { return game; },
+    get mySeat() { return mySeat; },
+    get pickState() { return pickState; },
+    get pending() { return pending; },
+    answerWithAI() {
+      if (!pending) return Promise.resolve(false);
+      const ai = new AI.AIController();
+      const r = ai.respond(game, pending.p, pending.req);
+      return Promise.resolve(r).then((v) => { resolvePending(v); return true; });
+    },
+    toast,
+    appendLog,
+    render: () => scheduleRender(),
+    makeHuman,
+    /* 由房主指定：誰用哪個 controller、各座位指定武將、我是第幾位 */
+    startGameWith(controllers, forcedGenerals, seat) {
+      cfg.nPlayers = cfg.mode === 'duel' ? 2 : (cfg.mode === 'id3' ? 3 : 5);
+      startGame({ controllers, forcedGenerals, seat: seat || 0 });
+    },
+    /* 連線選將：cands 為武將物件陣列，選滿後回呼 */
+    pickNet(cands, need, onDone) {
+      pickState = { pool: cands, cands, need, picked: [], onDone };
+      $('#pickTitle').textContent = need > 1 ? '選 擇 兩 名 武 將（體力取最高）' : '選 擇 你 的 武 將';
+      $('#pickHint').textContent = need > 1 ? `已選 0 / ${need}` : '';
+      renderPick();
+      $('#lobby').classList.add('hidden');
+      $('#pick').classList.add('hidden');
+      $('#pick').classList.remove('hidden');
+      $('#table').classList.add('hidden');
+    },
+    /* 客人端：把「引擎的請求」塞進來，讓原本的操作介面跑 */
+    showAsk(fakeGame, seat, req, resolve) {
+      game = fakeGame;
+      mySeat = seat;
+      pending = { g: fakeGame, p: fakeGame.players[seat], req, resolve };
+      sel = { cards: [], targets: [] };
+      $('#pick').classList.add('hidden');
+      $('#lobby').classList.add('hidden');
+      $('#table').classList.remove('hidden');
+      scheduleRender();
+    },
+    /* 客人端：狀態更新（保留正在等待的請求，只換資料） */
+    refreshView(fakeGame, seat) {
+      game = fakeGame;
+      mySeat = seat;
+      if (pending) { pending.g = fakeGame; pending.p = fakeGame.players[seat]; }
+      $('#pick').classList.add('hidden');
+      $('#lobby').classList.add('hidden');
+      $('#table').classList.remove('hidden');
+      scheduleRender();
+    },
+    /* 客人端：更新畫面用的狀態 */
+    setView(fakeGame, seat) {
+      game = fakeGame;
+      mySeat = seat;
+      $('#pick').classList.add('hidden');
+      $('#lobby').classList.add('hidden');
+      $('#table').classList.remove('hidden');
+      scheduleRender();
+    },
+    clearPending() { pending = null; sel = { cards: [], targets: [] }; scheduleRender(); },
+    backToLobby() {
+      $('#result').classList.add('hidden');
+      $('#table').classList.add('hidden');
+      $('#pick').classList.add('hidden');
+      $('#lobby').classList.remove('hidden');
+      game = null; pending = null; pickState = null;
+      buildLobby();
+    },
+    showResult() { try { showResult(); } catch (e) {} },
+    resetLog() { $('#log').innerHTML = ''; logCursor = 0; },
+  };
+
   // 測試鉤子
   window.__sgsUI = {
+    net: netAPI,
     cfg, get game() { return game; }, get pending() { return pending; },
     startGame: () => { beginPick(); },
     answerWithAI: () => {

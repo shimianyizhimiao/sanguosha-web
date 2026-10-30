@@ -446,3 +446,19 @@ button{font-family:inherit;cursor:pointer}
   background:rgba(10,6,6,.82);color:#ffb3b3;font-size:10px;text-align:center;padding:2px 0}
 .gcard .gport{position:relative}
 .gcard .gtodo{display:none}
+
+/* ================= 線上連線 ================= */
+.netbox{margin:16px auto 0;max-width:640px;padding:12px 14px;border:1px solid rgba(217,180,106,.28);border-radius:12px;background:rgba(24,19,13,.55)}
+.netbox-title{font-size:13px;color:#d9b46a;letter-spacing:.08em;margin-bottom:8px}
+.netbox-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.net-input{flex:1 1 120px;min-width:96px;padding:8px 10px;border-radius:9px;border:1px solid rgba(217,180,106,.35);background:rgba(0,0,0,.45);color:#f1e6cf;font-size:14px;letter-spacing:.18em;text-transform:uppercase}
+.net-input::placeholder{color:rgba(241,230,207,.4);letter-spacing:.05em}
+.net-panel{margin-top:10px;padding:12px;border-radius:10px;background:rgba(0,0,0,.35);border:1px solid rgba(217,180,106,.2)}
+.net-panel.hidden{display:none}
+.net-title{font-size:14px;color:#f1e6cf;margin-bottom:6px}
+.net-code{font-size:30px;letter-spacing:.3em;color:#e7c97a;text-align:center;margin:6px 0 8px;font-family:ui-monospace,Menlo,monospace}
+.net-hint{font-size:12px;color:rgba(241,230,207,.62);line-height:1.6;margin-bottom:8px}
+.net-list{margin:6px 0 10px}
+.net-item{font-size:13px;color:#e8dcc4;padding:4px 0;border-bottom:1px dashed rgba(217,180,106,.15)}
+.net-item.dim{color:rgba(241,230,207,.42)}
+.net-row{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}

@@ -6,6 +6,8 @@
 <title>三國殺 · 網頁版</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23120f0b'/%3E%3Crect x='4' y='4' width='56' height='56' rx='9' fill='none' stroke='%23d9b46a' stroke-width='2'/%3E%3Ctext x='32' y='45' font-size='38' text-anchor='middle' fill='%23d9b46a' font-family='serif'%3E%E6%AE%BA%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="css/style.css">
+<!-- 連線對戰用：PeerJS 直接放本機，不依賴 CDN（學校網路常擋 CDN） -->
+<script src="js/vendor/peerjs.min.js"></script>
 </head>
 <body>
 
@@ -45,6 +47,16 @@
 
     <div style="display:flex;justify-content:center;margin-top:14px">
       <button class="opt" id="btnEditor">＋ 自定義武將編輯器</button>
+    </div>
+
+    <div class="netbox">
+      <div class="netbox-title">線上連線（不同裝置一起玩）</div>
+      <div class="netbox-row">
+        <button class="opt" id="btnNetHost">建立房間</button>
+        <input id="netCode" class="net-input" maxlength="6" placeholder="4 位房號" autocomplete="off">
+        <button class="opt" id="btnNetJoin">加入房間</button>
+      </div>
+      <div id="netPanel" class="net-panel hidden"></div>
     </div>
 
     <div class="start-row">
@@ -137,6 +149,22 @@
 <script src="js/ai.js"></script>
 <script src="js/setup.js"></script>
 <script src="js/ui.js"></script>
+<script src="js/net.js"></script>
+<script src="js/netplay.js"></script>
+<script>
+  // 大廳的連線按鈕
+  (function () {
+    const host = document.getElementById('btnNetHost');
+    const join = document.getElementById('btnNetJoin');
+    const code = document.getElementById('netCode');
+    if (host) host.onclick = () => { if (window.SGS_NETPLAY) window.SGS_NETPLAY.createRoom(); };
+    if (join) join.onclick = () => {
+      const v = (code.value || '').trim().toUpperCase();
+      if (v.length < 3) { if (window.__sgsUI) window.__sgsUI.net.toast('請輸入房號'); return; }
+      if (window.SGS_NETPLAY) window.SGS_NETPLAY.joinRoom(v);
+    };
+  })();
+</script>
 <div id="sheet" class="hidden"><div class="sheet-box">
   <div class="sheet-head"><span id="sheetTitle"></span><button id="sheetClose">關閉</button></div>
   <div class="sheet-body" id="sheetBody"></div>
