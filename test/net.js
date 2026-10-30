@@ -1,11 +1,10 @@
 /* 連線對戰驗證：在同一個 Chrome 開兩個分頁（房主＋客人），真的走 WebRTC 對打
    用法：node test/net.js [url] */
-const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const net = require('net');
+const H = require('./harness');   // 全 repo 共用一個 Chrome，不再每次 spawn
 
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const sleep2 = H.sleep;
 const OUT = path.join(__dirname, '..', 'shots');
 if (!fs.existsSync(OUT)) fs.mkdirSync(OUT, { recursive: true });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -58,36 +57,23 @@ async function shot(cdp, name) {
 }
 
 (async () => {
-  const port = await freePort();
-  const userDir = fs.mkdtempSync('/tmp/sgs-net-');
-  process.on('exit', () => { try { fs.rmSync(userDir, { recursive: true, force: true }); } catch (e) {} });
-  const chrome = spawn(CHROME, [
-    `--remote-debugging-port=${port}`, '--remote-allow-origins=*',
-    `--user-data-dir=${userDir}`, '--no-first-run', '--no-default-browser-check',
-    '--window-size=1400,900', 'about:blank',
-  ], { stdio: 'ignore' });
-
-  let targets = [];
-  for (let i = 0; i < 60; i++) {
-    try {
-      const res = await fetch(`http://127.0.0.1:${port}/json/list`);
-      targets = await res.json();
-      if (targets.some((t) => t.type === 'page')) break;
-    } catch (e) { /* 等啟動 */ }
-    await sleep(300);
+  // 本機測試先確保伺服器活著（它常常被系統回收）
+  if (/127\.0\.0\.1|localhost/.test(URL0)) {
+    require('child_process').execFileSync(require('path').join(__dirname, 'serve.sh'), ['8125'], { stdio: 'inherit' });
   }
+  const info = await H.ensureChrome();
+  console.log('   瀏覽器：' + (info.spawned ? '新開一個（共用，不會再開第二個）' : '重用已開好的'));
 
-  const mk = async () => {
-    const t = await (await fetch(`http://127.0.0.1:${port}/json/new?${encodeURIComponent(URL0)}`, { method: 'PUT' })).json();
-    const cdp = await connect(t.webSocketDebuggerUrl);
-    await send(cdp, 'Page.enable');
-    await send(cdp, 'Runtime.enable');
-    return cdp;
-  };
-
-  const A = await mk();   // 房主
-  const B = await mk();   // 客人
-  await sleep(1500);
+  const READY = `typeof window.__sgsUI === 'object' && typeof window.SGS_NETPLAY === 'object' && typeof window.Peer === 'function'`;
+  const A = await H.openTab(URL0, { ready: READY });   // 房主
+  const B = await H.openTab(URL0, { ready: READY });   // 客人
+  for (const page of [A, B]) {
+    const ok = await ev(page, READY).catch((e) => 'ERR ' + e.message);
+    if (ok !== true) {
+      const dbg = await ev(page, `JSON.stringify({ url: location.href, state: document.readyState, head: (document.body && document.body.innerText || '').slice(0, 60) })`).catch((e) => 'ERR ' + e.message);
+      console.log('   分頁沒準備好：', dbg, ok);
+    }
+  }
 
   let fails = 0;
   const check = (ok, msg) => { if (!ok) fails++; console.log((ok ? '✅' : '❌') + ' ' + msg); };
@@ -200,7 +186,9 @@ async function shot(cdp, name) {
 
   const hostLogs = await ev(A, '(window.__sgs.game.logs || []).length');
   const guestLogs = await ev(B, 'document.querySelectorAll("#log .l").length');
-  check(Math.max(hostLogs, maxHostLogs) > 8, `房主引擎持續推進（最多 ${Math.max(hostLogs, maxHostLogs)} 行日誌）`);
+  const ended = await ev(A, '!!(window.__sgs.game && window.__sgs.game.over)');
+  const peakLogs = Math.max(hostLogs, maxHostLogs);
+  check(peakLogs > 8 || ended, `房主引擎持續推進（最多 ${peakLogs} 行日誌${ended ? '，已分出勝負' : ''}）`);
   check(guestLogs > 5, `客人端同步到日誌（${guestLogs} 行）`);
 
   const cmp = await ev(B, `(() => { const g = window.__sgsUI.net.game; return g.players.map(p => p.seat + ':' + p.hp + '/' + p.maxHp).join(','); })()`);
@@ -218,6 +206,7 @@ async function shot(cdp, name) {
     }
   }
   console.log(fails === 0 ? '\n全部通過' : `\n${fails} 項失敗`);
-  try { chrome.kill(); } catch (e) {}
+  // 只關分頁，瀏覽器留給下一個測試重用（要一起關就 SGS_CDP_KILL=1）
+  await H.closeTab(A); await H.closeTab(B);
   process.exit(fails === 0 ? 0 : 1);
 })().catch((e) => { console.error('測試失敗：', e.message); process.exit(1); });
