@@ -2,5 +2,9 @@
   "local": false,
   "youtube": "aEhc2NKUsjA",
   "volume": 35,
-  "_說明": "把 theme.mp3 放進這個資料夾後，把 local 改成 true 就會改用本機音檔；youtube 是後備。"
+  "_說明": "把 theme.mp3 放進這個資料夾後，把 local 改成 true 就會改用本機音檔；youtube 是後備。",
+  "generalThemes": {
+    "諸葛亮": "assets/bgm/gen/zhugeliang.mp3"
+  },
+  "_generalThemes說明": "選到對應武將（含界/神/SP等任何版本，用本名比對）時換成這首；其他時候播上面的 BGM。"
 }

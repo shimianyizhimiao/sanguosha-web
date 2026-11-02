@@ -174,6 +174,7 @@
       pickState.picked.push(g);
     }
     renderPick();
+    applyGeneralTheme(pickState.picked);
     $('#pickHint').textContent = `已選 ${pickState.picked.length} / ${pickState.need}` +
       (pickState.picked.length < pickState.need ? `：再點 ${pickState.need - pickState.picked.length} 隻` : '');
     if (pickState.picked.length === pickState.need) {
@@ -230,6 +231,7 @@
       onEvent: (type, data) => handleEvent(type, data),
     });
     mySeat = opts.seat != null ? opts.seat : 0;
+    try { applyGeneralTheme((game.players[mySeat] || {}).generals || pickState && pickState.picked); } catch (e) {}
     $('#phaseLabel').textContent = '';
     $('#promptLabel').textContent = '';
 
@@ -1082,10 +1084,16 @@
   }
 
   let localBgm = null;
+  let bgmCfg = null;          // assets/bgm/config.json（含 generalThemes）
+  fetch('assets/bgm/config.json', { cache: 'no-cache' })
+    .then(r => (r.ok ? r.json() : null)).then(c => { bgmCfg = c || null; }).catch(() => {});
+  let themeAudio = null;      // 武將專屬曲（例：諸葛亮）
+  let themeName = null;
 
   /* 讀 assets/bgm/config.json；local:true 時用本機 theme.mp3，否則用 YouTube（不會有 404 探測） */
   function tryLocalBgm(cb) {
     fetch('assets/bgm/config.json', { cache: 'no-cache' }).then(r => r.ok ? r.json() : null).then(cfg => {
+      bgmCfg = cfg || null;
       if (!cfg || !cfg.local) return cb(false);
       localBgm = new Audio('assets/bgm/theme.mp3');
       localBgm.loop = true;
@@ -1098,7 +1106,57 @@
 
   window.__bgmLocal = () => (localBgm ? { paused: localBgm.paused, t: localBgm.currentTime } : null);
 
+  /* ── 武將專屬曲：選到該武將（界／神／SP 等任何版本都算）就換歌 ── */
+  function generalThemeFor(generals) {
+    const map = (bgmCfg && bgmCfg.generalThemes) || {};
+    const names = (generals || []).map(g => (typeof g === 'string' ? g : (g && g.name))).filter(Boolean);
+    for (const n of names) {
+      const base = baseName(n);
+      if (map[base]) return { base, url: map[base] };
+      // 別的版本命名（謀／族／蜀…）也用包含比對，才不會只認得標將
+      for (const key of Object.keys(map)) {
+        if (base.includes(key)) return { base: key, url: map[key] };
+      }
+    }
+    return null;
+  }
+
+  function stopGeneralTheme(restore) {
+    if (!themeAudio) return;
+    try { themeAudio.pause(); themeAudio.currentTime = 0; } catch (e) {}
+    themeAudio = null;
+    themeName = null;
+    if (restore && bgmWanted) {
+      if (localBgm) localBgm.play().catch(() => {});
+      else if (ytPlayer && ytPlayer.playVideo) { try { ytPlayer.playVideo(); } catch (e) {} }
+    }
+  }
+
+  /** generals: 武將物件陣列或名字陣列；null = 回到一般 BGM */
+  function applyGeneralTheme(generals) {
+    const hit = generals ? generalThemeFor(generals) : null;
+    if (!hit) { stopGeneralTheme(true); return null; }
+    if (themeName !== hit.base || !themeAudio) {
+      stopGeneralTheme(false);
+      themeAudio = new Audio(hit.url);
+      themeAudio.loop = true;
+      themeAudio.volume = ((bgmCfg && bgmCfg.volume) || 35) / 100;
+      themeName = hit.base;
+    }
+    if (bgmWanted) {
+      if (localBgm) localBgm.pause();
+      else if (ytPlayer && ytPlayer.pauseVideo) { try { ytPlayer.pauseVideo(); } catch (e) {} }
+      themeAudio.play().catch(() => {});
+    }
+    return hit.base;
+  }
+
+  window.__bgmTheme = () => (themeAudio
+    ? { name: themeName, paused: themeAudio.paused, t: themeAudio.currentTime, vol: Math.round(themeAudio.volume * 100) }
+    : null);
+
   function initBGM() {
+    if (!bgmCfg) fetch('assets/bgm/config.json', { cache: 'no-cache' }).then(r => r.ok ? r.json() : null).then(c => { bgmCfg = c || bgmCfg; }).catch(() => {});
     if (ytPlayer || localBgm || !bgmWanted) return;
     tryLocalBgm(ok => { if (!ok) initYT(); });
   }
@@ -1156,6 +1214,7 @@
       bgmWanted = !bgmWanted;
       localStorage.setItem(BGM_KEY, bgmWanted ? 'on' : 'off');
       btnBgm.classList.toggle('on', bgmWanted);
+      if (themeAudio) { bgmWanted ? themeAudio.play().catch(() => {}) : themeAudio.pause(); return; }
       if (localBgm) { bgmWanted ? localBgm.play().catch(() => {}) : localBgm.pause(); return; }
       if (!ytPlayer) { if (bgmWanted) initBGM(); return; }
       try { bgmWanted ? ytPlayer.playVideo() : ytPlayer.pauseVideo(); } catch (e) { /* ignore */ }
@@ -1267,6 +1326,7 @@
       $('#pick').classList.add('hidden');
       $('#lobby').classList.remove('hidden');
       game = null; pending = null; pickState = null;
+      applyGeneralTheme(null);
       buildLobby();
     },
     showResult() { try { showResult(); } catch (e) {} },
