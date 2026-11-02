@@ -924,13 +924,20 @@
         if (p.turnFlags.endPlay) break;
         const usable = this.usableCards(p);
         const skills = this.usableSkills(p);
-        if (usable.length === 0 && skills.length === 0) break;
+        const reforge = this.reforgeableCards(p);          // 重鑄（鐵索連環這類）
+        if (usable.length === 0 && skills.length === 0 && reforge.length === 0) break;
         const act = await this.ask(p, {
           kind: 'play', prompt: '出牌階段',
           cards: usable.map(u => ({ id: u.card.id, name: u.asName || u.card.name, asName: u.asName || null, skill: u.skill || null })),
           skills, canEnd: true,
+          reforge: reforge.map(c => ({ id: c.id, name: c.name, suit: c.suit, rank: c.rank })),
         });
         if (!act || act.end) break;
+        if (act.reforge) {                                  // 重鑄走這裡，不是「使用」
+          const c = reforge.find(x => x.id === act.reforge);
+          if (c) await this.reforgeCard(p, c);
+          continue;
+        }
         if (act.skill) {
           const sk = this.SK[act.skill];
           if (sk && sk.active) await sk.active(this, p, act);
@@ -944,6 +951,25 @@
             act.asName || vc.asName || null, act.skill || vc.skill || null);
         }
       }
+    }
+
+    /* 手牌裡可以「重鑄」的牌（出牌階段：置入棄牌堆，摸一張） */
+    reforgeableCards(p) {
+      if (!p || !p.hand) return [];
+      if (p.silentHand != null && p.silentHand === p.turnCount) return [];   // 雄亂：不能用牌
+      if (p.turnFlags && p.turnFlags.noMoreCards) return [];                 // 往烈
+      return p.hand.filter(c => c.reforge);
+    }
+
+    async reforgeCard(p, card) {
+      const i = p.hand.indexOf(card);
+      if (i < 0) return;
+      p.hand.splice(i, 1);
+      this.toDiscard([card]);
+      this.log(`${this.nameOf(p)} 重鑄 ${C.cardText(card)}，摸一張牌`, 'info');
+      await this.trigger('reforge', { player: p, card });
+      await this.drawCards(p, 1);
+      await this.update();
     }
 
     usableSkills(p) {

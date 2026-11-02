@@ -43,9 +43,13 @@ async function ensureChrome() {
   // 預設：測試結束就把這隻共用 Chrome 關掉（記憶體歸零），
   // 要連續跑多個測試想重用，設 SGS_CDP_KEEP=1
   if (process.env.SGS_CDP_KEEP !== '1') {
-    process.on('exit', () => {
-      try { child.kill('SIGKILL'); } catch (e) {}
-    });
+    const sweep = () => {
+      // 先殺整個 process group（Chrome 會生一堆子程序），再掃同 profile 的殘留
+      try { process.kill(-child.pid, 'SIGKILL'); } catch (e) { try { child.kill('SIGKILL'); } catch (e2) {} }
+      try { require('child_process').execSync(`pkill -f "user-data-dir=${PROFILE}"`, { stdio: 'ignore' }); } catch (e) {}
+    };
+    process.on('exit', sweep);
+    process.on('SIGINT', () => { sweep(); process.exit(130); });
   }
   for (let i = 0; i < 80; i++) {
     const ok = await version();

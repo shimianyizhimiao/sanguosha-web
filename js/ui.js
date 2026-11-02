@@ -759,6 +759,22 @@
     box.appendChild(c);
   }
 
+  /* 重鑄：列出可以重鑄的手牌讓人挑 */
+  function showReforgeOptions(list) {
+    const box = $('#actions');
+    box.innerHTML = '';
+    list.forEach((c) => {
+      const suit = c.suit || '';
+      const rank = (window.SGS_CARDS && window.SGS_CARDS.rankText) ? window.SGS_CARDS.rankText(c.rank) : c.rank;
+      const b = el('button', 'act skill', `重鑄 ${suit}${rank}【${c.name}】`);
+      b.onclick = () => resolvePending({ reforge: c.id });
+      box.appendChild(b);
+    });
+    const c = el('button', 'act cancel', '取消');
+    c.onclick = () => { render(); };
+    box.appendChild(c);
+  }
+
   function resolvePending(value) {
     if (!pending) return;
     const p = pending;
@@ -805,6 +821,10 @@
         if (def && def.desc) btn.title = def.desc;      // 滑鼠停留可看技能說明
         btn.dataset.skill = sk;
       });
+      if (req.reforge && req.reforge.length) {
+        const rb = mk('reforge', '重鑄', () => showReforgeOptions(req.reforge));
+        rb.title = '把一張可重鑄的牌置入棄牌堆，然後摸一張牌（鐵索連環）';
+      }
       mk('', '結束出牌', () => resolvePending({ end: true }));
       return;
     }

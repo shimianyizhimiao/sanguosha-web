@@ -174,6 +174,9 @@
       const wugu = opts.find(o => nameOf(o) === '五穀豐登');
       if (wugu && p.hand.length <= 3) return { cardId: wugu.card.id };
 
+      // 8. 真的沒事做：把可重鑄的牌換掉（鐵索連環這類）
+      if (req.reforge && req.reforge.length) return { reforge: req.reforge[0].id };
+
       return { end: true };
     }
 
