@@ -118,7 +118,9 @@
     const shuffled = pool.slice().sort(() => Math.random() - 0.5).slice(0, Math.min(nShow, pool.length));
     pickState = { pool, cands: shuffled, need, picked: [] };
     $('#pickTitle').textContent = cfg.double ? '選 擇 兩 名 武 將（體力取最高）' : '選 擇 你 的 武 將';
-    $('#pickHint').textContent = need > 1 ? `已選 ${pickState.picked.length} / ${need}` : '';
+    $('#pickHint').textContent = need > 1
+      ? `已選 ${pickState.picked.length} / ${need}` + (pickState.picked.length < need ? `：再點 ${need - pickState.picked.length} 隻` : '')
+      : '點一張卡就直接開始';
     renderPick();
     $('#lobby').classList.add('hidden');
     $('#pick').classList.remove('hidden');
@@ -172,7 +174,8 @@
       pickState.picked.push(g);
     }
     renderPick();
-    $('#pickHint').textContent = `已選 ${pickState.picked.length} / ${pickState.need}`;
+    $('#pickHint').textContent = `已選 ${pickState.picked.length} / ${pickState.need}` +
+      (pickState.picked.length < pickState.need ? `：再點 ${pickState.need - pickState.picked.length} 隻` : '');
     if (pickState.picked.length === pickState.need) {
       const done = pickState.onDone;
       setTimeout(() => { if (done) done(pickState.picked.slice()); else startGame(); }, 180);
@@ -1200,7 +1203,7 @@
     pickNet(cands, need, onDone) {
       pickState = { pool: cands, cands, need, picked: [], onDone };
       $('#pickTitle').textContent = need > 1 ? '選 擇 兩 名 武 將（體力取最高）' : '選 擇 你 的 武 將';
-      $('#pickHint').textContent = need > 1 ? `已選 0 / ${need}` : '';
+      $('#pickHint').textContent = need > 1 ? `已選 0 / ${need}：點 ${need} 隻武將` : '點一張卡就直接開始';
       renderPick();
       $('#lobby').classList.add('hidden');
       $('#pick').classList.add('hidden');

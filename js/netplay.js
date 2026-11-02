@@ -196,17 +196,31 @@ window.SGS_NETPLAY = (function () {
 
     const need = cfg.double ? 2 : 1;
     const pool = Object.values(window.SGS_GENERALS).filter((x) => cfg.generalPacks.includes(x.pack));
-    const sample = () => pool.slice().sort(() => Math.random() - 0.5).slice(0, cfg.double ? 5 : 3);
+    /* 所有人的候選武將從同一袋「不放回」抽：兩邊的將不可能重複 */
+    const bag = pool.slice().sort(() => Math.random() - 0.5);
+    let ptr = 0;
+    const take = (n) => {
+      if (ptr + n > bag.length) {           // 袋子不夠就重洗（仍排除已發出去的）
+        const used = new Set(bag.slice(0, ptr).map((x) => x.name));
+        const rest = pool.filter((x) => !used.has(x.name)).sort(() => Math.random() - 0.5);
+        bag.length = ptr;
+        bag.push(...rest);
+      }
+      const out = bag.slice(ptr, ptr + n);
+      ptr += n;
+      return out;
+    };
+    const candSize = cfg.double ? 5 : 3;
 
     started = false;
     // 客人先拿到候選武將
     for (const g of guests) {
-      const cands = sample();
+      const cands = take(candSize);
       g.cands = cands;
       NET().send(g.conn, { t: 'pick', cands: cands.map((x) => x.name), need });
     }
     // 房主自己選
-    const myCands = sample();
+    const myCands = take(candSize);
     ui().pickNet(myCands, need, (names) => {
       picks.set(0, names.map((x) => x.name));
       tryStart();
@@ -230,9 +244,17 @@ window.SGS_NETPLAY = (function () {
       }
     }
     const forced = [];
+    const usedNames = new Set();
     for (let i = 0; i < humans; i++) {
       const names = picks.get(i) || [];
-      forced.push(names.map((n) => window.SGS_GENERALS[n]).filter(Boolean));
+      const list = [];
+      for (const n of names) {
+        if (usedNames.has(n)) continue;          // 保險：同一隻將不給兩個座位
+        usedNames.add(n);
+        const gen = window.SGS_GENERALS[n];
+        if (gen) list.push(gen);
+      }
+      forced.push(list);
     }
 
     ui().startGameWith(controllers, forced, 0);

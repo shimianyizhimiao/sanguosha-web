@@ -105,6 +105,8 @@ async function openTab(url, opts) {
   cdp.targetId = t.id;
   await cdp.send('Page.enable');
   await cdp.send('Runtime.enable');
+  // 測試一定要看到最新檔案（共用 profile 會吃舊快取）
+  try { await cdp.send('Network.enable'); await cdp.send('Network.setCacheDisabled', { cacheDisabled: true }); } catch (e) {}
   await cdp.send('Page.navigate', { url });
   if (o.ready) {
     for (let i = 0; i < 60; i++) {

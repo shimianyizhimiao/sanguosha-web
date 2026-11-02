@@ -54,6 +54,18 @@ const panelText = `((document.getElementById('netPanel') || {}).innerText || '')
     console.log('   房主狀態列：' + stA2);
   }
 
+  // 開始遊戲 → 兩邊候選武將不能重複
+  if (code) {
+    await ev(A, `document.getElementById('netStart').click()`);
+    await H.sleep(1500);
+    const namesA = await ev(A, `[...document.querySelectorAll('#pickCards .gname')].map(e => e.textContent)`);
+    const namesB = await ev(B, `[...document.querySelectorAll('#pickCards .gname')].map(e => e.textContent)`);
+    const dup = namesA.filter((n) => namesB.includes(n));
+    check(namesA.length > 0 && namesB.length > 0, `兩邊都出現選將（房主 ${namesA.join('/')} ｜ 客人 ${namesB.join('/')}）`);
+    check(dup.length === 0, `兩邊候選武將沒有重複${dup.length ? '（重複：' + dup.join('、') + '）' : ''}`);
+    await H.screenshot(B, path.join(OUT, 'netclick-pick-guest.png'));
+  }
+
   // 自我測試按鈕
   await ev(A, `document.getElementById('btnNetTest').click()`);
   let tr = '';

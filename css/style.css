@@ -470,3 +470,24 @@ button{font-family:inherit;cursor:pointer}
 
 .build{text-align:center;font-size:11px;color:#6d6353;margin-top:10px}
 .netbuild{font-size:11px;color:#6d6353;margin-left:8px;letter-spacing:0}
+
+/* ───── 選將（手機）：#pick 原本沒有 overflow，卡片會被切掉且滑不動 ───── */
+@media (max-width:720px){
+  #pick{justify-content:flex-start;overflow-y:auto;-webkit-overflow-scrolling:touch;
+    align-items:stretch;gap:12px;padding:14px 10px calc(84px + env(safe-area-inset-bottom))}
+  #pick h2{font-size:13px;letter-spacing:.24em;text-align:center;margin-top:4px}
+  .pick-cards{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;width:100%}
+  .gcard{width:auto;padding:0 8px 10px;border-radius:12px;transition:none}
+  .gcard:hover{transform:none}
+  .gcard .gport{height:104px;margin:0 -8px 6px}
+  .gcard .gname{font-size:17px;margin:3px 0 2px}
+  .gcard .kingdom{font-size:9px;letter-spacing:.12em}
+  .gcard .hprow{margin:2px 0 0}
+  .gcard .skills{font-size:11px;line-height:1.45;margin-top:6px}
+  .gcard .desc{display:none}
+  .gcard .gmore{font-size:11px;padding:5px 0;margin-top:6px}
+  .pick-hint{position:fixed;left:0;right:0;bottom:0;z-index:2;
+    padding:10px 14px calc(10px + env(safe-area-inset-bottom));
+    background:rgba(8,10,14,.96);border-top:1px solid rgba(217,180,106,.25);
+    font-size:13px;color:var(--gold);letter-spacing:.06em}
+}
