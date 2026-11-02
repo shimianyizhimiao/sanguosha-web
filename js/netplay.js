@@ -20,6 +20,13 @@ window.SGS_NETPLAY = (function () {
   const NET = () => window.SGS_NET;
 
   function toast(msg) { try { ui().toast(msg); } catch (e) { console.log(msg); } }
+  /* 常駐狀態：連線失敗時使用者要看得見原因，不能只有一閃而過的 toast */
+  function setStatus(text, kind) {
+    const s = $('#netStatus');
+    if (!s) return;
+    s.textContent = text;
+    s.className = 'net-status' + (kind ? ' ' + kind : '');
+  }
 
   /* ---------------- 大廳 UI ---------------- */
   function panel() { return $('#netPanel'); }
@@ -52,11 +59,16 @@ window.SGS_NETPLAY = (function () {
   function createRoom() {
     role = 'host';
     NET().destroy();
+    setStatus('正在向配對伺服器註冊…（最多 15 秒）', 'busy');
     NET().host().then((code) => {
+      setStatus('房間已建立，等同學加入', 'ok');
       showPanel(roomHTML(code));
       bindHostButtons();
       renderGuestList();
-    }).catch((err) => toast('開房失敗：' + err.message));
+    }).catch((err) => {
+      setStatus('開房失敗：' + err.message, 'bad');
+      toast('開房失敗：' + err.message);
+    });
 
     NET().on('guest', (conn) => {
       const maxSeats = seatsNeeded() - 1;
@@ -273,16 +285,21 @@ window.SGS_NETPLAY = (function () {
   function joinRoom(code) {
     role = 'guest';
     NET().destroy();
+    setStatus('正在連線到房間 ' + code + '…（最多 12 秒）', 'busy');
     toast('連線中…');
     NET().join(code).then(() => {
+      setStatus('已連上房間 ' + code + '，等房主開始', 'ok');
       NET().sendHost({ t: 'hello', name: '玩家' });
       showPanel(`<div class="net-title">已連上房間 ${code}</div>
         <div class="net-hint">等房主按「開始遊戲」…</div>`);
-    }).catch((err) => toast('加入失敗：' + err.message));
+    }).catch((err) => {
+      setStatus('加入失敗：' + err.message, 'bad');
+      toast('加入失敗：' + err.message);
+    });
 
     NET().on('data', ({ msg }) => onGuestData(msg));
-    NET().on('closed', () => { toast('與房主的連線斷了'); ui().backToLobby(); });
-    NET().on('error', (err) => toast('連線錯誤：' + (err.message || err.type)));
+    NET().on('closed', () => { setStatus('與房主的連線斷了', 'bad'); toast('與房主的連線斷了'); ui().backToLobby(); });
+    NET().on('error', (err) => { setStatus('連線錯誤：' + (err.message || err.type), 'bad'); toast('連線錯誤：' + (err.message || err.type)); });
   }
 
   function onGuestData(msg) {
@@ -343,8 +360,20 @@ window.SGS_NETPLAY = (function () {
   }
 
   /* ---------------- 對外 ---------------- */
+  /* 使用者自己按「連線測試」：分辨是網路擋住還是房號問題 */
+  function selfTest() {
+    setStatus('測試中…（最多 15 秒）', 'busy');
+    NET().selfTest().then((r) => {
+      setStatus('✅ ' + r.msg, 'ok');
+      toast('連線正常：' + r.msg);
+    }).catch((err) => {
+      setStatus('❌ ' + err.message, 'bad');
+      toast('連線失敗：' + err.message);
+    });
+  }
+
   return {
-    createRoom, joinRoom,
+    createRoom, joinRoom, selfTest,
     get role() { return role; },
     get mySeat() { return guestSeat; },
     isOnline() { return role === 'host' || role === 'guest'; },

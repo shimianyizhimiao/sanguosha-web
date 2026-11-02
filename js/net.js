@@ -36,10 +36,15 @@ window.SGS_NET = (function () {
         if (!opened) { opened = true; reject(new Error(friendly(err))); }
         else emit('error', err);
       };
+      const t0 = Date.now();
+      const timer = setTimeout(() => {
+        fail({ type: 'network', message: '15 秒內連不上配對伺服器（PeerJS 雲端被擋？）' });
+      }, 15000);
       peer.on('open', () => {
+        clearTimeout(timer);
         opened = true;
         isHost = true; code = c;
-        emit('room', { code: c });
+        emit('room', { code: c, ms: Date.now() - t0 });
         resolve(c);
       });
       peer.on('error', fail);
@@ -90,6 +95,26 @@ window.SGS_NET = (function () {
     });
   }
 
+  /* 只測「配對伺服器通不通」，不碰房間；給使用者自己按。 */
+  function selfTest() {
+    return new Promise((resolve, reject) => {
+      if (!available()) return reject(new Error('連線模組 js/vendor/peerjs.min.js 沒載入'));
+      const t0 = Date.now();
+      let p;
+      try { p = new window.Peer(undefined, { debug: 0 }); } catch (e) { return reject(new Error('這個瀏覽器不支援 WebRTC')); }
+      let done = false;
+      const end = (ok, msg) => {
+        if (done) return;
+        done = true;
+        try { p.destroy(); } catch (e) {}
+        if (ok) resolve({ ms: Date.now() - t0, msg }); else reject(new Error(msg));
+      };
+      p.on('open', () => end(true, '配對伺服器正常（' + (Date.now() - t0) + ' ms）'));
+      p.on('error', (err) => end(false, friendly(err)));
+      setTimeout(() => end(false, '15 秒內連不上配對伺服器：這個網路可能擋住了 wss/WebRTC'), 15000);
+    });
+  }
+
   function friendly(err) {
     const t = (err && err.type) || '';
     if (t === 'unavailable-id') return '這個房號已被使用，請再開一次';
@@ -113,7 +138,7 @@ window.SGS_NET = (function () {
   }
 
   return {
-    available, host, join, on, send, broadcast, sendHost, destroy,
+    available, host, join, selfTest, on, send, broadcast, sendHost, destroy,
     get isHost() { return isHost; },
     get code() { return code; },
     get conns() { return conns; },
