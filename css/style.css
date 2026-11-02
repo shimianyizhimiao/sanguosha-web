@@ -467,3 +467,5 @@ button{font-family:inherit;cursor:pointer}
 .net-status.busy{color:#e2c47a}
 .net-status.ok{color:#8fd694}
 .net-status.bad{color:#e0776b}
+
+.build{text-align:center;font-size:11px;color:#6d6353;margin-top:10px}
