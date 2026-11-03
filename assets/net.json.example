@@ -1,0 +1,7 @@
+{
+  "_說明": "想讓「兩邊網路都很嚴格」也連得起來，就把這個檔改名成 net.json 並填自己的 TURN 伺服器。沒有這個檔也能玩，只要其中一邊的網路允許對外 UDP。",
+  "iceServers": [
+    { "urls": "turn:your-turn-host:3478", "username": "user", "credential": "pass" },
+    { "urls": "turn:your-turn-host:443?transport=tcp", "username": "user", "credential": "pass" }
+  ]
+}

@@ -385,9 +385,14 @@ window.SGS_NETPLAY = (function () {
   /* 使用者自己按「連線測試」：分辨是網路擋住還是房號問題 */
   function selfTest() {
     setStatus('測試中…（最多 15 秒）', 'busy');
-    NET().selfTest().then((r) => {
-      setStatus('✅ ' + r.msg, 'ok');
-      toast('連線正常：' + r.msg);
+    NET().selfTest().then(async (r) => {
+      let turn = '';
+      try {
+        const t = await NET().turnTest();
+        turn = t.ok ? '｜中繼可用（跨網更穩）' : '｜中繼不可用（嚴格 NAT 可能連不上）';
+      } catch (e) {}
+      setStatus('✅ ' + r.msg + turn, 'ok');
+      toast('連線正常：' + r.msg + turn);
     }).catch((err) => {
       setStatus('❌ ' + err.message, 'bad');
       toast('連線失敗：' + err.message);
